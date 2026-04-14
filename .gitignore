@@ -3,3 +3,4 @@
 .env
 .claude
 static/uploads/
+data/

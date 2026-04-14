@@ -1,0 +1,22 @@
+FROM rust:latest AS builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+COPY migrations/ migrations/
+
+RUN cargo build --release
+
+# --- Runtime ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /build/target/release/kahoot_free .
+COPY migrations/ migrations/
+COPY static/ static/
+RUN rm -rf static/uploads
+
+EXPOSE 3000
+CMD ["./kahoot_free"]
