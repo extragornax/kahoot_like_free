@@ -48,10 +48,20 @@ async fn main() {
         games: game::new_manager(),
     };
 
+    let admin = Router::new()
+        .route("/users", get(handlers::admin::list_users))
+        .route("/users/{id}/quizzes", get(handlers::admin::user_quizzes))
+        .route("/users/{id}/password", axum::routing::put(handlers::admin::change_password))
+        .route("/users/{id}/admin", axum::routing::put(handlers::admin::set_admin))
+        .route("/users/{id}", axum::routing::delete(handlers::admin::delete_user))
+        .route("/quizzes/{id}", axum::routing::delete(handlers::admin::delete_quiz));
+
     let api = Router::new()
+        .nest("/admin", admin)
         .route("/auth/challenge", get(handlers::auth::challenge))
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
+        .route("/auth/me", get(handlers::auth::me))
         .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))
         .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))
         .route("/games/{quiz_id}", post(handlers::game::create))

@@ -24,17 +24,23 @@ pub struct CreateGameResponse {
 
 pub async fn create(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, is_admin): AuthUser,
     Path(quiz_id): Path<Uuid>,
 ) -> Result<Json<CreateGameResponse>, StatusCode> {
-    // Load quiz + questions + answers from DB
-    let quiz = sqlx::query_as::<_, crate::models::Quiz>(
-        "SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2",
-    )
-    .bind(quiz_id)
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await
+    let quiz = if is_admin {
+        sqlx::query_as::<_, crate::models::Quiz>("SELECT * FROM quizzes WHERE id = $1")
+            .bind(quiz_id)
+            .fetch_optional(&state.db)
+            .await
+    } else {
+        sqlx::query_as::<_, crate::models::Quiz>(
+            "SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2",
+        )
+        .bind(quiz_id)
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+    }
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 

@@ -1087,7 +1087,10 @@
 <div id="dashboard-screen" class="screen">
     <div class="top-bar">
         <h1>Kahoot Free</h1>
-        <button class="btn btn-white btn-small" id="logout-btn">Logout</button>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-blue btn-small" id="admin-btn" style="display:none">Admin</button>
+            <button class="btn btn-white btn-small" id="logout-btn">Logout</button>
+        </div>
     </div>
     <div class="dashboard-body">
         <div class="dashboard-actions">
@@ -1180,6 +1183,44 @@
     <button class="btn btn-white mt-20" id="back-dashboard-final-btn" style="display:none">Back to Dashboard</button>
 </div>
 <div class="confetti-container" id="confetti-container"></div>
+
+<!-- Screen 8: Admin -->
+<div id="admin-screen" class="screen">
+    <div class="top-bar">
+        <h1>Admin Dashboard</h1>
+        <button class="btn btn-white btn-small" id="admin-back-btn">Back</button>
+    </div>
+    <div class="dashboard-body">
+        <div class="quiz-list-title">Users</div>
+        <div id="admin-user-list" class="quiz-list"></div>
+    </div>
+</div>
+
+<!-- Admin: user detail modal -->
+<div id="admin-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; display:none; align-items:center; justify-content:center;">
+    <div style="background:#46178f; border:2px solid rgba(255,255,255,0.2); border-radius:16px; padding:30px; width:90%; max-width:600px; max-height:85vh; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h2 id="admin-modal-title" style="font-size:1.4rem;"></h2>
+            <button class="btn btn-white btn-small" id="admin-modal-close">Close</button>
+        </div>
+
+        <div style="margin-bottom:20px;">
+            <h3 style="font-size:1rem; margin-bottom:10px;">Change Password</h3>
+            <div style="display:flex; gap:10px;">
+                <input type="password" id="admin-new-password" placeholder="New password" style="flex:1; padding:10px 14px; border-radius:8px; border:none; font-size:1rem; background:rgba(255,255,255,0.15); color:#fff; outline:none;">
+                <button class="btn btn-blue btn-small" id="admin-save-password">Save</button>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-bottom:20px;">
+            <button class="btn btn-small" id="admin-toggle-admin"></button>
+            <button class="btn btn-red btn-small" id="admin-delete-user">Delete User</button>
+        </div>
+
+        <h3 style="font-size:1rem; margin-bottom:10px;">Quizzes</h3>
+        <div id="admin-user-quizzes" class="quiz-list"></div>
+    </div>
+</div>
 
 <!-- Game background overlay + music -->
 <div class="game-background" id="game-background"></div>
@@ -1313,6 +1354,7 @@
     // --- Dashboard ---
     async function loadDashboard() {
         showScreen('dashboard-screen');
+        checkAdmin();
         const list = document.getElementById('quiz-list');
         list.innerHTML = '';
 
@@ -2093,6 +2135,147 @@
 
     musicVolume.addEventListener('input', () => {
         gameAudio.volume = musicVolume.value / 100;
+    });
+
+    // --- Admin ---
+    let isAdmin = false;
+    let adminSelectedUser = null;
+
+    async function checkAdmin() {
+        try {
+            const res = await apiFetch('/api/auth/me');
+            if (res.ok) {
+                const me = await res.json();
+                isAdmin = me.is_admin;
+            }
+        } catch {}
+        document.getElementById('admin-btn').style.display = isAdmin ? '' : 'none';
+    }
+
+    document.getElementById('admin-btn').addEventListener('click', loadAdminScreen);
+    document.getElementById('admin-back-btn').addEventListener('click', loadDashboard);
+
+    async function loadAdminScreen() {
+        showScreen('admin-screen');
+        const list = document.getElementById('admin-user-list');
+        list.innerHTML = '';
+        try {
+            const res = await apiFetch('/api/admin/users');
+            if (!res.ok) { toast('Failed to load users.'); return; }
+            const users = await res.json();
+            users.forEach(u => {
+                const item = document.createElement('div');
+                item.className = 'quiz-item';
+                item.innerHTML = `
+                    <div>
+                        <div class="quiz-item-title">${escapeHtml(u.username)} ${u.is_admin ? '<span style="opacity:0.6; font-size:0.85rem;">(admin)</span>' : ''}</div>
+                        <div style="font-size:0.85rem; opacity:0.6; margin-top:4px;">${u.quiz_count} quizzes &middot; joined ${new Date(u.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <div class="quiz-item-actions">
+                        <button class="btn btn-blue btn-small admin-manage-btn" data-id="${u.id}" data-name="${escapeHtml(u.username)}" data-admin="${u.is_admin}">Manage</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+            list.querySelectorAll('.admin-manage-btn').forEach(btn => {
+                btn.addEventListener('click', () => openAdminModal(btn.dataset.id, btn.dataset.name, btn.dataset.admin === 'true'));
+            });
+        } catch { toast('Network error.'); }
+    }
+
+    function openAdminModal(userId, username, userIsAdmin) {
+        adminSelectedUser = { id: userId, username, isAdmin: userIsAdmin };
+        document.getElementById('admin-modal-title').textContent = username;
+        document.getElementById('admin-new-password').value = '';
+        const toggleBtn = document.getElementById('admin-toggle-admin');
+        toggleBtn.textContent = userIsAdmin ? 'Remove Admin' : 'Make Admin';
+        toggleBtn.className = userIsAdmin ? 'btn btn-small btn-red' : 'btn btn-small btn-green';
+        const modal = document.getElementById('admin-modal');
+        modal.style.display = 'flex';
+        loadAdminUserQuizzes(userId);
+    }
+
+    document.getElementById('admin-modal-close').addEventListener('click', () => {
+        document.getElementById('admin-modal').style.display = 'none';
+    });
+
+    async function loadAdminUserQuizzes(userId) {
+        const container = document.getElementById('admin-user-quizzes');
+        container.innerHTML = '';
+        try {
+            const res = await apiFetch('/api/admin/users/' + userId + '/quizzes');
+            if (!res.ok) return;
+            const quizzes = await res.json();
+            if (!quizzes.length) { container.innerHTML = '<div style="opacity:0.5;">No quizzes</div>'; return; }
+            quizzes.forEach(q => {
+                const item = document.createElement('div');
+                item.className = 'quiz-item';
+                item.style.padding = '12px 16px';
+                item.innerHTML = `
+                    <div class="quiz-item-title" style="font-size:1rem;">${escapeHtml(q.title)}</div>
+                    <div class="quiz-item-actions">
+                        <button class="btn btn-green btn-small admin-play-quiz" data-id="${q.id}">Play</button>
+                        <button class="btn btn-blue btn-small admin-edit-quiz" data-id="${q.id}" data-user="${userId}">Edit</button>
+                        <button class="btn btn-red btn-small admin-del-quiz" data-id="${q.id}" data-user="${userId}">Delete</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+            container.querySelectorAll('.admin-play-quiz').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.getElementById('admin-modal').style.display = 'none';
+                    startGame(btn.dataset.id);
+                });
+            });
+            container.querySelectorAll('.admin-edit-quiz').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.getElementById('admin-modal').style.display = 'none';
+                    editQuiz(btn.dataset.id);
+                });
+            });
+            container.querySelectorAll('.admin-del-quiz').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm('Delete this quiz?')) return;
+                    await apiFetch('/api/admin/quizzes/' + btn.dataset.id, { method: 'DELETE' });
+                    loadAdminUserQuizzes(btn.dataset.user);
+                    toast('Quiz deleted.');
+                });
+            });
+        } catch {}
+    }
+
+    document.getElementById('admin-save-password').addEventListener('click', async () => {
+        const pw = document.getElementById('admin-new-password').value;
+        if (!pw || pw.length < 4) { toast('Password too short.'); return; }
+        const res = await apiFetch('/api/admin/users/' + adminSelectedUser.id + '/password', {
+            method: 'PUT',
+            body: JSON.stringify({ password: pw })
+        });
+        if (res.ok) { toast('Password changed.'); document.getElementById('admin-new-password').value = ''; }
+        else toast('Failed to change password.');
+    });
+
+    document.getElementById('admin-toggle-admin').addEventListener('click', async () => {
+        const newVal = !adminSelectedUser.isAdmin;
+        const res = await apiFetch('/api/admin/users/' + adminSelectedUser.id + '/admin', {
+            method: 'PUT',
+            body: JSON.stringify({ is_admin: newVal })
+        });
+        if (res.ok) {
+            toast(newVal ? 'User is now admin.' : 'Admin removed.');
+            document.getElementById('admin-modal').style.display = 'none';
+            loadAdminScreen();
+        } else toast('Failed.');
+    });
+
+    document.getElementById('admin-delete-user').addEventListener('click', async () => {
+        if (!confirm('Delete user ' + adminSelectedUser.username + ' and all their quizzes?')) return;
+        const res = await apiFetch('/api/admin/users/' + adminSelectedUser.id, { method: 'DELETE' });
+        if (res.ok) {
+            toast('User deleted.');
+            document.getElementById('admin-modal').style.display = 'none';
+            loadAdminScreen();
+        } else toast('Failed to delete user.');
     });
 
     // --- Init ---

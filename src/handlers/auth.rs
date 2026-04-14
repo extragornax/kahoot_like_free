@@ -43,7 +43,7 @@ pub async fn register(
     .await
     .map_err(|_| StatusCode::CONFLICT)?; // username already exists
 
-    let token = create_token(user.id)?;
+    let token = create_token(user.id, user.is_admin)?;
     Ok(Json(AuthResponse { token }))
 }
 
@@ -69,6 +69,29 @@ pub async fn login(
         .verify_password(req.password.as_bytes(), &parsed_hash)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let token = create_token(user.id)?;
+    let token = create_token(user.id, user.is_admin)?;
     Ok(Json(AuthResponse { token }))
+}
+
+#[derive(serde::Serialize)]
+pub struct MeResponse {
+    pub id: uuid::Uuid,
+    pub username: String,
+    pub is_admin: bool,
+}
+
+pub async fn me(
+    crate::auth::AuthUser(user_id, _): crate::auth::AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<MeResponse>, StatusCode> {
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(MeResponse {
+        id: user.id,
+        username: user.username,
+        is_admin: user.is_admin,
+    }))
 }

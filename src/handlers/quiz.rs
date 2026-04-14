@@ -21,7 +21,7 @@ pub struct QuestionDetail {
 
 pub async fn list(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, _): AuthUser,
 ) -> Result<Json<Vec<Quiz>>, StatusCode> {
     let quizzes: Vec<Quiz> =
         sqlx::query_as("SELECT * FROM quizzes WHERE creator_id = $1 ORDER BY updated_at DESC")
@@ -35,16 +35,23 @@ pub async fn list(
 
 pub async fn get(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, is_admin): AuthUser,
     axum::extract::Path(quiz_id): axum::extract::Path<uuid::Uuid>,
 ) -> Result<Json<QuizDetail>, StatusCode> {
-    let quiz: Quiz = sqlx::query_as("SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2")
-        .bind(quiz_id)
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let quiz: Quiz = if is_admin {
+        sqlx::query_as("SELECT * FROM quizzes WHERE id = $1")
+            .bind(quiz_id)
+            .fetch_optional(&state.db)
+            .await
+    } else {
+        sqlx::query_as("SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2")
+            .bind(quiz_id)
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
     let questions: Vec<Question> =
         sqlx::query_as("SELECT * FROM questions WHERE quiz_id = $1 ORDER BY position")
@@ -72,7 +79,7 @@ pub async fn get(
 
 pub async fn create(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, _): AuthUser,
     Json(req): Json<CreateQuizRequest>,
 ) -> Result<(StatusCode, Json<Quiz>), StatusCode> {
     let mut tx = state
@@ -128,19 +135,25 @@ pub async fn create(
 
 pub async fn update(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, is_admin): AuthUser,
     axum::extract::Path(quiz_id): axum::extract::Path<uuid::Uuid>,
     Json(req): Json<CreateQuizRequest>,
 ) -> Result<Json<Quiz>, StatusCode> {
     // Fetch old quiz to clean up replaced media
-    let old_quiz: Quiz =
+    let old_quiz: Quiz = if is_admin {
+        sqlx::query_as("SELECT * FROM quizzes WHERE id = $1")
+            .bind(quiz_id)
+            .fetch_optional(&state.db)
+            .await
+    } else {
         sqlx::query_as("SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2")
             .bind(quiz_id)
             .bind(user_id)
             .fetch_optional(&state.db)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
     let mut tx = state
         .db
@@ -148,16 +161,28 @@ pub async fn update(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let quiz: Quiz = sqlx::query_as(
-        "UPDATE quizzes SET title = $1, background_url = $4, music_url = $5, updated_at = now() WHERE id = $2 AND creator_id = $3 RETURNING *",
-    )
-    .bind(&req.title)
-    .bind(quiz_id)
-    .bind(user_id)
-    .bind(&req.background_url)
-    .bind(&req.music_url)
-    .fetch_optional(&mut *tx)
-    .await
+    let quiz: Quiz = if is_admin {
+        sqlx::query_as(
+            "UPDATE quizzes SET title = $1, background_url = $3, music_url = $4, updated_at = now() WHERE id = $2 RETURNING *",
+        )
+        .bind(&req.title)
+        .bind(quiz_id)
+        .bind(&req.background_url)
+        .bind(&req.music_url)
+        .fetch_optional(&mut *tx)
+        .await
+    } else {
+        sqlx::query_as(
+            "UPDATE quizzes SET title = $1, background_url = $4, music_url = $5, updated_at = now() WHERE id = $2 AND creator_id = $3 RETURNING *",
+        )
+        .bind(&req.title)
+        .bind(quiz_id)
+        .bind(user_id)
+        .bind(&req.background_url)
+        .bind(&req.music_url)
+        .fetch_optional(&mut *tx)
+        .await
+    }
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
@@ -216,17 +241,22 @@ pub async fn update(
 
 pub async fn delete(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, is_admin): AuthUser,
     axum::extract::Path(quiz_id): axum::extract::Path<uuid::Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    // Fetch quiz first to clean up media
-    let quiz: Option<Quiz> =
+    let quiz: Option<Quiz> = if is_admin {
+        sqlx::query_as("SELECT * FROM quizzes WHERE id = $1")
+            .bind(quiz_id)
+            .fetch_optional(&state.db)
+            .await
+    } else {
         sqlx::query_as("SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2")
             .bind(quiz_id)
             .bind(user_id)
             .fetch_optional(&state.db)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let Some(quiz) = quiz else {
         return Err(StatusCode::NOT_FOUND);

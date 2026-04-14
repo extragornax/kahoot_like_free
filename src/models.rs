@@ -9,6 +9,7 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub password_hash: String,
+    pub is_admin: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -69,6 +70,8 @@ pub struct AuthResponse {
 pub struct Claims {
     pub sub: Uuid,
     pub exp: usize,
+    #[serde(default)]
+    pub admin: bool,
 }
 
 #[derive(Deserialize)]
