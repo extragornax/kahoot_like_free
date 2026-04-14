@@ -459,12 +459,22 @@ fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
 }
 
 fn close_question(session: &mut GameSession) {
+    // Snapshot scores before this round for delta calculation
+    let prev_scores: std::collections::HashMap<String, i64> = session
+        .players
+        .iter()
+        .map(|(id, p)| (id.clone(), p.score))
+        .collect();
+
     session.phase = GamePhase::Results;
     let q = &session.quiz.questions[session.current_question];
     let time_limit_ms = q.time_limit_secs as u64 * 1000;
 
-    // Score each answer
-    let mut player_results = std::collections::HashMap::<String, (bool, i64)>::new();
+    // Score each answer, track timing
+    let mut player_results =
+        std::collections::HashMap::<String, (bool, i64, u64)>::new(); // (correct, points, time_ms)
+    let mut answer_times: Vec<u64> = Vec::new();
+
     for (player_id, answer) in &session.answers {
         let correct = q
             .answers
@@ -482,8 +492,18 @@ fn close_question(session: &mut GameSession) {
         if let Some(player) = session.players.get_mut(player_id) {
             player.score += points;
         }
-        player_results.insert(player_id.clone(), (correct, points));
+        answer_times.push(answer.time_ms);
+        player_results.insert(player_id.clone(), (correct, points, answer.time_ms));
     }
+
+    // Speed stats
+    answer_times.sort();
+    let fastest_ms = answer_times.first().copied().unwrap_or(0);
+    let average_ms = if answer_times.is_empty() {
+        0
+    } else {
+        answer_times.iter().sum::<u64>() / answer_times.len() as u64
+    };
 
     let leaderboard = session.leaderboard();
 
@@ -497,6 +517,7 @@ fn close_question(session: &mut GameSession) {
 
     let is_last = session.current_question + 1 >= session.quiz.questions.len();
 
+    // Host results — include score gained per player for animations
     session.send_to_host(
         &json!({
             "type": "results",
@@ -505,20 +526,39 @@ fn close_question(session: &mut GameSession) {
                 "is_correct": a.is_correct,
                 "count": answer_counts[i],
             })).collect::<Vec<_>>(),
-            "leaderboard": leaderboard,
+            "leaderboard": leaderboard.iter().map(|e| {
+                let prev = prev_scores.values()
+                    .zip(session.players.values())
+                    .find(|(_, p)| p.nickname == e.nickname)
+                    .map(|(_, p)| prev_scores.iter().find(|(id, _)| {
+                        session.players.get(*id).map(|pl| pl.nickname == e.nickname).unwrap_or(false)
+                    }).map(|(_, s)| *s).unwrap_or(0))
+                    .unwrap_or(0);
+                json!({
+                    "nickname": e.nickname,
+                    "score": e.score,
+                    "gained": e.score - prev,
+                })
+            }).collect::<Vec<_>>(),
             "is_last": is_last,
+            "fastest_ms": fastest_ms,
         })
         .to_string(),
     );
 
-    // Individual results to each player
+    // Individual results to each player — include timing stats
     for (player_id, player) in &session.players {
-        let (correct, points) = player_results.get(player_id).copied().unwrap_or((false, 0));
+        let (correct, points, time_ms) =
+            player_results.get(player_id).copied().unwrap_or((false, 0, 0));
         let rank = leaderboard
             .iter()
             .position(|e| e.nickname == player.nickname)
             .unwrap_or(0)
             + 1;
+        // Speed rank: how many answered faster
+        let speed_rank = answer_times.iter().filter(|&&t| t < time_ms).count() + 1;
+        let answered = player_results.contains_key(player_id);
+
         let _ = player.tx.send(
             json!({
                 "type": "result",
@@ -527,6 +567,11 @@ fn close_question(session: &mut GameSession) {
                 "score": player.score,
                 "rank": rank,
                 "total_players": session.players.len(),
+                "time_ms": if answered { time_ms } else { 0 },
+                "speed_rank": if answered { speed_rank } else { 0 },
+                "fastest_ms": fastest_ms,
+                "average_ms": average_ms,
+                "total_answered": answer_times.len(),
             })
             .to_string(),
         );

@@ -745,6 +745,24 @@
             border-radius: 8px;
             margin-bottom: 8px;
             font-weight: 600;
+            opacity: 0;
+            transform: translateX(-30px);
+            animation: lbSlideIn 0.4s ease forwards;
+        }
+
+        .leaderboard-row.top1 {
+            background: linear-gradient(90deg, rgba(245,197,24,0.3), rgba(255,255,255,0.1));
+            border: 1px solid rgba(245,197,24,0.5);
+            animation: lbSlideIn 0.4s ease forwards, lbGlow 1.5s ease-in-out infinite 0.5s;
+        }
+
+        @keyframes lbSlideIn {
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes lbGlow {
+            0%, 100% { box-shadow: 0 0 0 rgba(245,197,24,0); }
+            50% { box-shadow: 0 0 20px rgba(245,197,24,0.4); }
         }
 
         .leaderboard-rank {
@@ -761,6 +779,15 @@
         .leaderboard-score {
             font-weight: 800;
             font-size: 1.1rem;
+        }
+
+        .leaderboard-gained {
+            font-size: 0.85rem;
+            color: #2ecc71;
+            font-weight: 700;
+            margin-left: 10px;
+            min-width: 50px;
+            text-align: right;
         }
 
         /* Final Screen */
@@ -1632,6 +1659,7 @@
         const maxCount = Math.max(1, ...data.answers.map(a => a.count));
         const colors = ['red', 'blue', 'green', 'yellow'];
 
+        // Animate bars from 0 → target width
         data.answers.forEach((ans, i) => {
             const pct = (ans.count / maxCount) * 100;
             const row = document.createElement('div');
@@ -1639,27 +1667,44 @@
             row.innerHTML = `
                 <div class="chart-bar-label">${escapeHtml(ans.text)}${ans.is_correct ? ' \u2713' : ''}</div>
                 <div class="chart-bar-track">
-                    <div class="chart-bar-fill ${colors[i]}" style="width: ${pct}%">
+                    <div class="chart-bar-fill ${colors[i]}" style="width: 0%">
                         ${ans.count}
                     </div>
                 </div>
             `;
             chart.appendChild(row);
+            // Animate after a stagger
+            setTimeout(() => {
+                row.querySelector('.chart-bar-fill').style.width = pct + '%';
+            }, 100 + i * 150);
         });
 
-        // Leaderboard (top 5)
+        // Animated leaderboard (top 5) — staggered entrance
         const lb = document.getElementById('results-leaderboard');
         lb.innerHTML = '<h3>Leaderboard</h3>';
         const top5 = (data.leaderboard || []).slice(0, 5);
+
         top5.forEach((entry, i) => {
+            const gained = entry.gained || 0;
             const row = document.createElement('div');
-            row.className = 'leaderboard-row';
+            row.className = 'leaderboard-row' + (i === 0 ? ' top1' : '');
+            row.style.animationDelay = (0.6 + i * 0.15) + 's';
+            const scoreTarget = entry.score;
+            const scoreFrom = scoreTarget - gained;
             row.innerHTML = `
-                <div class="leaderboard-rank">#${i + 1}</div>
+                <div class="leaderboard-rank">${i === 0 ? '\uD83E\uDD47' : i === 1 ? '\uD83E\uDD48' : i === 2 ? '\uD83E\uDD49' : '#' + (i+1)}</div>
                 <div class="leaderboard-name">${escapeHtml(entry.nickname)}</div>
-                <div class="leaderboard-score">${entry.score}</div>
+                <div class="leaderboard-score" data-from="${scoreFrom}" data-to="${scoreTarget}">${scoreFrom}</div>
+                ${gained > 0 ? `<div class="leaderboard-gained">+${gained}</div>` : '<div class="leaderboard-gained"></div>'}
             `;
             lb.appendChild(row);
+
+            // Animate score counting up
+            if (gained > 0) {
+                setTimeout(() => {
+                    animateCount(row.querySelector('.leaderboard-score'), scoreFrom, scoreTarget, 800);
+                }, 800 + i * 150);
+            }
         });
 
         const nextBtn = document.getElementById('next-btn');
@@ -1668,6 +1713,17 @@
         } else {
             nextBtn.textContent = 'Next Question';
         }
+    }
+
+    function animateCount(el, from, to, duration) {
+        const start = performance.now();
+        function tick(now) {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+            el.textContent = Math.round(from + (to - from) * eased);
+            if (t < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
     }
 
     document.getElementById('next-btn').addEventListener('click', () => {
