@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(cargo build:*)",
+      "Bash(DATABASE_URL=\"postgres://kahoot:kahoot@localhost:5433/kahoot\" timeout 5 cargo run)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"testuser\",\"password\":\"testpass123\"}')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:3000/host.html)"
+    ]
+  }
+}
