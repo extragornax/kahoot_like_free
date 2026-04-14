@@ -36,16 +36,22 @@ docker compose down           # stop everything
 **Stack:** Axum (HTTP + WebSocket) / SQLx (async Postgres, compile-time query checking) / Argon2 (password hashing) / JWT (auth tokens)
 
 **Two web interfaces:**
-- `static/host.html` — computer screen: quiz management, game control, leaderboard display
+- `static/index.html` — computer screen (served at `/`): quiz management, game control, leaderboard display
 - `static/player.html` — phone screen: join via QR code, answer questions
 
 **Code layout:**
 - `src/main.rs` — server startup, route wiring, AppState
 - `src/auth.rs` — JWT creation/verification, `AuthUser` extractor
 - `src/models.rs` — DB row structs + API request/response types
-- `src/handlers/` — route handlers (auth, quiz CRUD)
+- `src/game.rs` — in-memory game state (GameManager, GameSession, scoring, PIN generation)
+- `src/handlers/` — route handlers (auth, quiz CRUD, game WebSocket)
 - `migrations/` — SQLx SQL migrations (auto-run on startup via `sqlx::migrate!()`)
 
 **API routes:** all under `/api`
 - `POST /api/auth/register`, `POST /api/auth/login` — public
 - `GET/POST /api/quizzes`, `GET/DELETE /api/quizzes/{id}` — requires `Authorization: Bearer <token>`
+- `POST /api/games/{quiz_id}` — create a game session, returns `{pin}` (auth required)
+
+**WebSocket routes:**
+- `GET /ws/host/{pin}` — host connects to control the game
+- `GET /ws/play/{pin}` — player connects to join and play

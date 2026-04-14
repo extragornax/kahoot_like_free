@@ -17,6 +17,8 @@ pub struct Quiz {
     pub id: Uuid,
     pub title: String,
     pub creator_id: Option<Uuid>,
+    pub background_url: Option<String>,
+    pub music_url: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -68,6 +70,8 @@ pub struct Claims {
 pub struct CreateQuizRequest {
     pub title: String,
     pub questions: Vec<CreateQuestionRequest>,
+    pub background_url: Option<String>,
+    pub music_url: Option<String>,
 }
 
 #[derive(Deserialize)]

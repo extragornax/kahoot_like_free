@@ -6,7 +6,20 @@
       "Bash(DATABASE_URL=\"postgres://kahoot:kahoot@localhost:5433/kahoot\" timeout 5 cargo run)",
       "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"testuser\",\"password\":\"testpass123\"}')",
       "Bash(python3 -m json.tool)",
-      "Bash(curl -s http://localhost:3000/host.html)"
+      "Bash(curl -s http://localhost:3000/host.html)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/register -H 'Content-Type: application/json' -d '{\"username\":\"testhost\",\"password\":\"pass123\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"testhost\",\"password\":\"pass123\"}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/host.html)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/player.html)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"Connection: Upgrade\" -H \"Upgrade: websocket\" -H \"Sec-WebSocket-Version: 13\" -H \"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\" http://localhost:3000/ws/host/921806)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"Connection: Upgrade\" -H \"Upgrade: websocket\" -H \"Sec-WebSocket-Version: 13\" -H \"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\" http://localhost:3000/ws/play/921806)",
+      "Bash(cargo search:*)",
+      "Bash(DATABASE_URL=\"postgres://kahoot:kahoot@localhost:5433/kahoot\" cargo run)",
+      "Read(//tmp/**)",
+      "Bash(lsof -ti:3000)",
+      "Bash(xargs kill:*)",
+      "Bash(pkill -f \"target/debug/kahoot_free\")"
     ]
   }
 }
