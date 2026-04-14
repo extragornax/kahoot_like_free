@@ -29,6 +29,7 @@ pub struct QuestionData {
     pub text: String,
     pub answers: Vec<AnswerChoice>,
     pub time_limit_secs: i32,
+    pub image_url: Option<String>,
 }
 
 #[derive(Clone)]

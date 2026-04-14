@@ -10,6 +10,7 @@ mod auth;
 mod game;
 mod handlers;
 mod models;
+pub mod pow;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -48,6 +49,7 @@ async fn main() {
     };
 
     let api = Router::new()
+        .route("/auth/challenge", get(handlers::auth::challenge))
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))

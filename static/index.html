@@ -344,6 +344,15 @@
         .answers-list .answer-row:nth-child(2) input[type="text"] { background: rgba(19, 104, 206, 0.4); }
         .answers-list .answer-row:nth-child(3) input[type="text"] { background: rgba(38, 137, 12, 0.4); }
         .answers-list .answer-row:nth-child(4) input[type="text"] { background: rgba(216, 158, 0, 0.4); }
+        .answers-list .answer-row:nth-child(5) input[type="text"] { background: rgba(134, 59, 186, 0.4); }
+        .answers-list .answer-row:nth-child(6) input[type="text"] { background: rgba(0, 157, 154, 0.4); }
+
+        .q-image-row { margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+        .q-image-row .file-input { width: 0; height: 0; opacity: 0; position: absolute; }
+        .q-image-btn { padding: 8px 14px; border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff; border: none; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+        .q-image-btn:hover { background: rgba(255,255,255,0.25); }
+        .q-image-preview { max-height: 80px; border-radius: 6px; }
+        .q-image-name { font-size: 0.85rem; opacity: 0.7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         .answer-row input[type="text"]::placeholder {
             color: rgba(255, 255, 255, 0.5);
@@ -635,6 +644,10 @@
         .answer-block.blue { background: #1368ce; }
         .answer-block.green { background: #26890c; }
         .answer-block.yellow { background: #d89e00; }
+        .answer-block.purple { background: #863bba; }
+        .answer-block.teal { background: #009d9a; }
+
+        .question-image { max-height: 200px; max-width: 60%; border-radius: 12px; margin-bottom: 20px; align-self: center; object-fit: contain; }
 
         .answer-icon {
             font-size: 1.8rem;
@@ -716,6 +729,8 @@
         .chart-bar-fill.blue { background: #1368ce; }
         .chart-bar-fill.green { background: #26890c; }
         .chart-bar-fill.yellow { background: #d89e00; }
+        .chart-bar-fill.purple { background: #863bba; }
+        .chart-bar-fill.teal { background: #009d9a; }
 
         .chart-bar-correct {
             font-size: 0.85rem;
@@ -856,6 +871,59 @@
         .podium-3rd .podium-bar {
             height: 90px;
             background: linear-gradient(to top, #8b5e3c, #cd7f32);
+        }
+
+        .podium-place {
+            opacity: 0;
+            transform: translateY(40px) scale(0.8);
+            transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .podium-place.revealed {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .podium-place.winner-bounce {
+            animation: winnerBounce 0.8s ease 0.6s;
+        }
+
+        @keyframes winnerBounce {
+            0%, 100% { transform: translateY(0) scale(1); }
+            30% { transform: translateY(-20px) scale(1.08); }
+            50% { transform: translateY(-10px) scale(1.04); }
+            70% { transform: translateY(-5px) scale(1.02); }
+        }
+
+        .reveal-label {
+            font-size: 2.5rem;
+            font-weight: 900;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .reveal-label.visible { opacity: 1; }
+
+        .confetti-container {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            z-index: 60;
+            overflow: hidden;
+        }
+
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            top: -10px;
+            animation: confettiFall linear forwards;
+        }
+
+        @keyframes confettiFall {
+            to { top: 110vh; transform: rotate(720deg); }
         }
 
         .final-leaderboard {
@@ -1028,6 +1096,7 @@
         <div class="timer-bar" id="timer-bar"></div>
     </div>
     <div class="question-text" id="question-text"></div>
+    <img class="question-image" id="question-image" style="display:none">
     <div class="answers-grid" id="answers-grid"></div>
 </div>
 
@@ -1042,10 +1111,12 @@
 <!-- Screen 7: Final -->
 <div id="final-screen" class="screen">
     <div class="final-title">Final Results</div>
+    <div class="reveal-label" id="reveal-label"></div>
     <div class="podium" id="podium"></div>
     <div class="final-leaderboard" id="final-leaderboard"></div>
-    <button class="btn btn-white mt-20" id="back-dashboard-final-btn">Back to Dashboard</button>
+    <button class="btn btn-white mt-20" id="back-dashboard-final-btn" style="display:none">Back to Dashboard</button>
 </div>
+<div class="confetti-container" id="confetti-container"></div>
 
 <!-- Game background overlay + music -->
 <div class="game-background" id="game-background"></div>
@@ -1102,6 +1173,27 @@
         });
     });
 
+    // --- Proof-of-Work solver ---
+    async function solvePoW() {
+        const res = await fetch('/api/auth/challenge');
+        const { challenge, difficulty } = await res.json();
+        const prefix = '0'.repeat(difficulty);
+        const encoder = new TextEncoder();
+
+        for (let nonce = 0; ; nonce++) {
+            const input = challenge + ':' + nonce;
+            const hashBuf = await crypto.subtle.digest('SHA-256', encoder.encode(input));
+            const hex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+            if (hex.startsWith(prefix)) {
+                return { challenge, nonce: String(nonce) };
+            }
+            // Yield to UI every 1000 iterations
+            if (nonce % 1000 === 0 && nonce > 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+    }
+
     authSubmit.addEventListener('click', async () => {
         const username = document.getElementById('auth-username').value.trim();
         const password = document.getElementById('auth-password').value;
@@ -1112,11 +1204,15 @@
             return;
         }
 
-        const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+        authSubmit.disabled = true;
+        authSubmit.textContent = 'Verifying...';
+
         try {
+            const pow = await solvePoW();
+            const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
             const res = await apiFetch(endpoint, {
                 method: 'POST',
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, challenge: pow.challenge, nonce: pow.nonce })
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => null);
@@ -1131,6 +1227,9 @@
             loadDashboard();
         } catch (e) {
             authError.textContent = 'Network error. Please try again.';
+        } finally {
+            authSubmit.disabled = false;
+            authSubmit.textContent = authMode === 'login' ? 'Login' : 'Register';
         }
     });
 
@@ -1319,11 +1418,13 @@
             document.getElementById('questions-container').innerHTML = '';
 
             (quiz.questions || []).forEach(q => {
-                const isTF = q.answers.length === 2;
+                const n = q.answers.length;
+                const type = n <= 2 ? 'tf' : n <= 4 ? 'mc4' : 'mc6';
                 addQuestionBlock({
                     text: q.text,
                     time_limit_secs: q.time_limit_secs,
-                    type: isTF ? 'tf' : 'mc',
+                    image_url: q.image_url,
+                    type,
                     answers: q.answers
                 });
             });
@@ -1344,9 +1445,10 @@
     function addQuestionBlock(prefill) {
         const container = document.getElementById('questions-container');
         const index = container.children.length;
-        const qType = (prefill && prefill.type) || 'mc';
+        const qType = (prefill && prefill.type) || 'mc4';
         const block = document.createElement('div');
         block.className = 'question-block';
+        block._imageUrl = (prefill && prefill.image_url) || null;
         block.innerHTML = `
             <div class="question-header">
                 <h3>Question ${index + 1}</h3>
@@ -1355,30 +1457,28 @@
             <div class="question-type-row">
                 <label>Type:</label>
                 <select class="q-type">
-                    <option value="mc"${qType === 'mc' ? ' selected' : ''}>Multiple Choice (4)</option>
                     <option value="tf"${qType === 'tf' ? ' selected' : ''}>True / False</option>
+                    <option value="mc4"${qType === 'mc4' ? ' selected' : ''}>Multiple Choice (4)</option>
+                    <option value="mc6"${qType === 'mc6' ? ' selected' : ''}>Multiple Choice (6)</option>
                 </select>
             </div>
             <div class="form-group">
                 <input type="text" class="q-text" placeholder="Question text...">
             </div>
+            <div class="q-image-row">
+                <input type="file" accept="image/*" class="file-input q-image-input">
+                <button type="button" class="q-image-btn q-image-choose">Add Image</button>
+                <span class="q-image-name">${block._imageUrl ? block._imageUrl.split('/').pop() : 'No image'}</span>
+                <button type="button" class="q-image-btn q-image-clear" style="display:${block._imageUrl ? 'inline-block' : 'none'}">Remove</button>
+            </div>
+            <div class="q-image-preview-container">${block._imageUrl ? `<img class="q-image-preview" src="${block._imageUrl}">` : ''}</div>
             <div class="answers-list">
-                <div class="answer-row">
-                    <input type="text" class="a-text" placeholder="Answer 1">
-                    <label><input type="checkbox" class="a-correct"> Correct</label>
-                </div>
-                <div class="answer-row">
-                    <input type="text" class="a-text" placeholder="Answer 2">
-                    <label><input type="checkbox" class="a-correct"> Correct</label>
-                </div>
-                <div class="answer-row answer-mc">
-                    <input type="text" class="a-text" placeholder="Answer 3">
-                    <label><input type="checkbox" class="a-correct"> Correct</label>
-                </div>
-                <div class="answer-row answer-mc">
-                    <input type="text" class="a-text" placeholder="Answer 4">
-                    <label><input type="checkbox" class="a-correct"> Correct</label>
-                </div>
+                <div class="answer-row"><input type="text" class="a-text" placeholder="Answer 1"><label><input type="checkbox" class="a-correct"> Correct</label></div>
+                <div class="answer-row"><input type="text" class="a-text" placeholder="Answer 2"><label><input type="checkbox" class="a-correct"> Correct</label></div>
+                <div class="answer-row answer-mc4"><input type="text" class="a-text" placeholder="Answer 3"><label><input type="checkbox" class="a-correct"> Correct</label></div>
+                <div class="answer-row answer-mc4"><input type="text" class="a-text" placeholder="Answer 4"><label><input type="checkbox" class="a-correct"> Correct</label></div>
+                <div class="answer-row answer-mc6"><input type="text" class="a-text" placeholder="Answer 5"><label><input type="checkbox" class="a-correct"> Correct</label></div>
+                <div class="answer-row answer-mc6"><input type="text" class="a-text" placeholder="Answer 6"><label><input type="checkbox" class="a-correct"> Correct</label></div>
             </div>
             <div class="time-limit-row">
                 <label>Time limit:</label>
@@ -1387,12 +1487,14 @@
         `;
 
         const typeSelect = block.querySelector('.q-type');
-        const mcRows = block.querySelectorAll('.answer-mc');
+        const mc4Rows = block.querySelectorAll('.answer-mc4');
+        const mc6Rows = block.querySelectorAll('.answer-mc6');
 
         function applyType() {
-            const isTF = typeSelect.value === 'tf';
-            mcRows.forEach(r => r.style.display = isTF ? 'none' : 'flex');
-            if (isTF) {
+            const v = typeSelect.value;
+            mc4Rows.forEach(r => r.style.display = (v === 'tf') ? 'none' : 'flex');
+            mc6Rows.forEach(r => r.style.display = (v === 'mc6') ? 'flex' : 'none');
+            if (v === 'tf') {
                 const texts = block.querySelectorAll('.answers-list .a-text');
                 const checks = block.querySelectorAll('.answers-list .a-correct');
                 if (!texts[0].value) texts[0].value = 'True';
@@ -1402,6 +1504,30 @@
             }
         }
         typeSelect.addEventListener('change', applyType);
+
+        // Image upload
+        const imgInput = block.querySelector('.q-image-input');
+        block.querySelector('.q-image-choose').addEventListener('click', () => imgInput.click());
+        imgInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                toast('Uploading image...');
+                const url = await uploadFile(file);
+                block._imageUrl = url;
+                block.querySelector('.q-image-name').textContent = file.name;
+                block.querySelector('.q-image-preview-container').innerHTML = `<img class="q-image-preview" src="${url}">`;
+                block.querySelector('.q-image-clear').style.display = 'inline-block';
+                toast('Image uploaded!');
+            } catch { toast('Upload failed.'); }
+        });
+        block.querySelector('.q-image-clear').addEventListener('click', () => {
+            block._imageUrl = null;
+            block.querySelector('.q-image-name').textContent = 'No image';
+            block.querySelector('.q-image-preview-container').innerHTML = '';
+            block.querySelector('.q-image-clear').style.display = 'none';
+            imgInput.value = '';
+        });
 
         block.querySelector('.remove-question-btn').addEventListener('click', () => {
             block.remove();
@@ -1442,8 +1568,8 @@
             const text = block.querySelector('.q-text').value.trim();
             if (!text) { toast('All questions must have text.'); return; }
 
-            const isTF = block.querySelector('.q-type').value === 'tf';
-            const answerCount = isTF ? 2 : 4;
+            const qTypeVal = block.querySelector('.q-type').value;
+            const answerCount = qTypeVal === 'tf' ? 2 : qTypeVal === 'mc6' ? 6 : 4;
             const answerTexts = block.querySelectorAll('.answers-list .a-text');
             const answerCorrects = block.querySelectorAll('.answers-list .a-correct');
             const answers = [];
@@ -1458,7 +1584,7 @@
             if (!hasCorrect) { toast('Each question needs at least one correct answer.'); return; }
 
             const timeLimit = parseInt(block.querySelector('.q-time').value) || 20;
-            questions.push({ text, time_limit_secs: timeLimit, answers });
+            questions.push({ text, time_limit_secs: timeLimit, image_url: block._imageUrl || null, answers });
         }
 
         try {
@@ -1622,26 +1748,34 @@
         document.getElementById('question-text').textContent = data.text;
         document.getElementById('answer-counter').textContent = '0 / ' + currentTotalPlayers + ' answered';
 
+        // Question image
+        const qImg = document.getElementById('question-image');
+        if (data.image_url) {
+            qImg.src = data.image_url;
+            qImg.style.display = 'block';
+        } else {
+            qImg.style.display = 'none';
+        }
+
         const grid = document.getElementById('answers-grid');
         grid.innerHTML = '';
-        grid.style.gridTemplateColumns = data.answers.length <= 2 ? '1fr' : '1fr 1fr';
-        const colors = ['red', 'blue', 'green', 'yellow'];
-        const icons = ['\u25B2', '\u25C6', '\u25CF', '\u25A0']; // triangle, diamond, circle, square
+        const n = data.answers.length;
+        grid.style.gridTemplateColumns = n <= 2 ? '1fr' : n <= 4 ? '1fr 1fr' : '1fr 1fr 1fr';
+        const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'teal'];
+        const icons = ['\u25B2', '\u25C6', '\u25CF', '\u25A0', '\u2B23', '\u2726'];
 
         data.answers.forEach((ans, i) => {
             const block = document.createElement('div');
-            block.className = 'answer-block ' + colors[i];
+            block.className = 'answer-block ' + (colors[i] || 'blue');
             block.innerHTML = `
-                <div class="answer-icon">${icons[i]}</div>
+                <div class="answer-icon">${icons[i] || ''}</div>
                 <div class="answer-block-text">${escapeHtml(ans.text)}</div>
             `;
             grid.appendChild(block);
         });
 
-        // Start timer
         const timerBar = document.getElementById('timer-bar');
         timerBar.style.animation = 'none';
-        // Force reflow
         void timerBar.offsetWidth;
         timerBar.style.animation = 'timerShrink ' + data.time_limit + 's linear forwards';
     }
@@ -1735,44 +1869,111 @@
     // --- Final ---
     function showFinal(data) {
         showScreen('final-screen');
+        const leaderboard = data.leaderboard || [];
 
         const podium = document.getElementById('podium');
         podium.innerHTML = '';
+        const revealLabel = document.getElementById('reveal-label');
+        revealLabel.textContent = '';
+        revealLabel.classList.remove('visible');
+        const lb = document.getElementById('final-leaderboard');
+        lb.innerHTML = '';
+        document.getElementById('back-dashboard-final-btn').style.display = 'none';
+        document.getElementById('confetti-container').innerHTML = '';
 
-        const leaderboard = data.leaderboard || [];
-
-        // Podium: display order is 2nd, 1st, 3rd
-        const podiumOrder = [1, 0, 2];
+        // Build podium elements (hidden): display order 2nd, 1st, 3rd
+        const podiumOrder = [1, 0, 2]; // visual positions
         const placeLabels = ['1', '2', '3'];
         const placeClasses = ['podium-1st', 'podium-2nd', 'podium-3rd'];
+        const placeEmojis = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
+        const places = [];
 
         podiumOrder.forEach(rank => {
+            const place = document.createElement('div');
+            place.className = 'podium-place ' + placeClasses[rank];
             if (rank < leaderboard.length) {
                 const entry = leaderboard[rank];
-                const place = document.createElement('div');
-                place.className = 'podium-place ' + placeClasses[rank];
                 place.innerHTML = `
                     <div class="podium-name">${escapeHtml(entry.nickname)}</div>
                     <div class="podium-score">${entry.score} pts</div>
                     <div class="podium-bar">${placeLabels[rank]}</div>
                 `;
-                podium.appendChild(place);
+            } else {
+                place.innerHTML = `<div class="podium-bar">${placeLabels[rank]}</div>`;
+                place.style.visibility = 'hidden';
             }
+            podium.appendChild(place);
+            places[rank] = place;
         });
 
-        // Full leaderboard
-        const lb = document.getElementById('final-leaderboard');
-        lb.innerHTML = '<h3>Full Standings</h3>';
-        leaderboard.forEach((entry, i) => {
-            const row = document.createElement('div');
-            row.className = 'leaderboard-row';
-            row.innerHTML = `
-                <div class="leaderboard-rank">#${i + 1}</div>
-                <div class="leaderboard-name">${escapeHtml(entry.nickname)}</div>
-                <div class="leaderboard-score">${entry.score}</div>
-            `;
-            lb.appendChild(row);
-        });
+        // Dramatic reveal sequence: 3rd → 2nd → 1st
+        const revealOrder = [2, 1, 0]; // reveal 3rd first
+        const labels = ['3rd Place...', '2nd Place...', 'And the WINNER is...'];
+        let step = 0;
+
+        function revealNext() {
+            if (step >= revealOrder.length || revealOrder[step] >= leaderboard.length) {
+                // Done revealing — show full leaderboard
+                finishReveal();
+                return;
+            }
+
+            const rank = revealOrder[step];
+            revealLabel.textContent = labels[step];
+            revealLabel.classList.add('visible');
+
+            setTimeout(() => {
+                revealLabel.classList.remove('visible');
+                setTimeout(() => {
+                    places[rank].classList.add('revealed');
+                    if (rank === 0) {
+                        places[rank].classList.add('winner-bounce');
+                        launchConfetti();
+                    }
+                    step++;
+                    setTimeout(revealNext, rank === 0 ? 2000 : 1500);
+                }, 400);
+            }, 1200);
+        }
+
+        function finishReveal() {
+            revealLabel.textContent = '';
+            // Show full leaderboard
+            lb.innerHTML = '<h3>Full Standings</h3>';
+            leaderboard.forEach((entry, i) => {
+                const row = document.createElement('div');
+                row.className = 'leaderboard-row' + (i === 0 ? ' top1' : '');
+                row.style.animationDelay = (i * 0.1) + 's';
+                row.innerHTML = `
+                    <div class="leaderboard-rank">${i < 3 ? placeEmojis[i] : '#' + (i+1)}</div>
+                    <div class="leaderboard-name">${escapeHtml(entry.nickname)}</div>
+                    <div class="leaderboard-score">${entry.score}</div>
+                `;
+                lb.appendChild(row);
+            });
+            document.getElementById('back-dashboard-final-btn').style.display = '';
+        }
+
+        // Start reveal after a brief pause
+        setTimeout(revealNext, 800);
+    }
+
+    function launchConfetti() {
+        const container = document.getElementById('confetti-container');
+        const confettiColors = ['#e21b3c', '#1368ce', '#26890c', '#d89e00', '#863bba', '#f5c518', '#ff69b4'];
+        for (let i = 0; i < 80; i++) {
+            const c = document.createElement('div');
+            c.className = 'confetti';
+            c.style.left = Math.random() * 100 + 'vw';
+            c.style.background = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+            c.style.width = (6 + Math.random() * 8) + 'px';
+            c.style.height = (6 + Math.random() * 8) + 'px';
+            c.style.borderRadius = Math.random() > 0.5 ? '50%' : '0';
+            c.style.animationDuration = (2 + Math.random() * 3) + 's';
+            c.style.animationDelay = (Math.random() * 1.5) + 's';
+            container.appendChild(c);
+        }
+        setTimeout(() => { container.innerHTML = ''; }, 6000);
     }
 
     document.getElementById('back-dashboard-final-btn').addEventListener('click', () => {

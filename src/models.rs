@@ -30,6 +30,7 @@ pub struct Question {
     pub text: String,
     pub time_limit_secs: i32,
     pub position: i32,
+    pub image_url: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize)]
@@ -47,12 +48,16 @@ pub struct Answer {
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
+    pub challenge: String,
+    pub nonce: String,
 }
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    pub challenge: String,
+    pub nonce: String,
 }
 
 #[derive(Serialize)]
@@ -78,6 +83,7 @@ pub struct CreateQuizRequest {
 pub struct CreateQuestionRequest {
     pub text: String,
     pub time_limit_secs: Option<i32>,
+    pub image_url: Option<String>,
     pub answers: Vec<CreateAnswerRequest>,
 }
 

@@ -218,6 +218,10 @@
         .answer-btn.blue   { background: #1368ce; }
         .answer-btn.green  { background: #26890c; }
         .answer-btn.yellow { background: #d89e00; }
+        .answer-btn.purple { background: #863bba; }
+        .answer-btn.teal   { background: #009d9a; }
+
+        .question-image-player { max-height: 120px; max-width: 90%; border-radius: 8px; margin-bottom: 8px; object-fit: contain; }
 
         /* ── Answered screen ── */
 
@@ -419,6 +423,7 @@
         <div class="question-header">
             <div class="question-counter" id="question-counter"></div>
             <div class="question-text" id="question-text"></div>
+            <img class="question-image-player" id="question-image" style="display:none">
         </div>
         <div class="answers-container" id="answers-container"></div>
     </div>
@@ -593,13 +598,18 @@
         }
 
         // ── Question screen ──
-        const shapes = ['▲', '◆', '●', '■'];
-        const colors = ['red', 'blue', 'green', 'yellow'];
+        const shapes = ['▲', '◆', '●', '■', '⬡', '✦'];
+        const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'teal'];
 
         function showQuestion(data) {
             document.getElementById('question-counter').textContent =
                 `Question ${data.index + 1} of ${data.total}`;
             document.getElementById('question-text').textContent = data.text;
+
+            // Question image
+            const qImg = document.getElementById('question-image');
+            if (data.image_url) { qImg.src = data.image_url; qImg.style.display = 'block'; }
+            else { qImg.style.display = 'none'; }
 
             // Timer bar
             const timerBar = document.getElementById('timer-bar');
@@ -688,26 +698,69 @@
 
         // ── Final screen ──
         function showFinal(data) {
-            document.getElementById('final-rank').textContent =
-                `You finished ${ordinal(data.rank)}!`;
-            document.getElementById('final-score').textContent =
-                `${data.score} points`;
-
-            // Leaderboard (top 5)
+            showScreen('final-screen');
+            const rankEl = document.getElementById('final-rank');
+            const scoreEl = document.getElementById('final-score');
             const lb = document.getElementById('leaderboard');
+            rankEl.textContent = '';
+            scoreEl.textContent = '';
             lb.innerHTML = '';
+
             const top5 = (data.leaderboard || []).slice(0, 5);
-            top5.forEach((entry, i) => {
+            const emojis = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
+
+            // Reveal leaderboard one by one (3rd→2nd→1st then rest)
+            const revealOrder = [];
+            for (let i = Math.min(2, top5.length - 1); i >= 0; i--) revealOrder.push(i);
+            for (let i = 3; i < top5.length; i++) revealOrder.push(i);
+
+            let step = 0;
+            function revealRow() {
+                if (step >= revealOrder.length) {
+                    // Show player's own result
+                    setTimeout(() => {
+                        rankEl.textContent = `You finished ${ordinal(data.rank)}!`;
+                        rankEl.style.animation = 'none'; void rankEl.offsetWidth;
+                        rankEl.style.animation = 'screenFadeIn 0.5s ease';
+                        scoreEl.textContent = `${data.score} points`;
+                    }, 400);
+                    return;
+                }
+                const i = revealOrder[step];
+                const entry = top5[i];
                 const row = document.createElement('div');
                 row.className = 'leaderboard-row';
+                row.style.opacity = '0';
+                row.style.transform = 'scale(0.8)';
                 row.innerHTML =
-                    `<span class="lb-rank">${i + 1}.</span>` +
+                    `<span class="lb-rank">${i < 3 ? emojis[i] : (i+1) + '.'}</span>` +
                     `<span class="lb-name">${escapeHtml(entry.nickname)}</span>` +
                     `<span class="lb-score">${entry.score}</span>`;
-                lb.appendChild(row);
-            });
 
-            showScreen('final-screen');
+                // Insert in correct position
+                const existing = lb.children;
+                let inserted = false;
+                for (let j = 0; j < existing.length; j++) {
+                    if (parseInt(existing[j].dataset.pos) > i) {
+                        lb.insertBefore(row, existing[j]);
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (!inserted) lb.appendChild(row);
+                row.dataset.pos = i;
+
+                requestAnimationFrame(() => {
+                    row.style.transition = 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                    row.style.opacity = '1';
+                    row.style.transform = 'scale(1)';
+                });
+
+                step++;
+                setTimeout(revealRow, step <= 3 ? 1200 : 400);
+            }
+
+            setTimeout(revealRow, 600);
         }
 
         // ── Error screen ──

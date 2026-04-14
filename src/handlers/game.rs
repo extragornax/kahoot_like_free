@@ -64,6 +64,7 @@ pub async fn create(
                 })
                 .collect(),
             time_limit_secs: q.time_limit_secs,
+            image_url: q.image_url.clone(),
         });
     }
 
@@ -420,6 +421,7 @@ fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
             "index": idx,
             "total": total,
             "text": q.text,
+            "image_url": q.image_url,
             "answers": q.answers.iter().map(|a| json!({
                 "text": a.text,
                 "is_correct": a.is_correct,
@@ -436,6 +438,7 @@ fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
             "index": idx,
             "total": total,
             "text": q.text,
+            "image_url": q.image_url,
             "answers": q.answers.iter().map(|a| a.text.clone()).collect::<Vec<_>>(),
             "time_limit": q.time_limit_secs,
         })
