@@ -19,7 +19,9 @@
       "Read(//tmp/**)",
       "Bash(lsof -ti:3000)",
       "Bash(xargs kill:*)",
-      "Bash(pkill -f \"target/debug/kahoot_free\")"
+      "Bash(pkill -f \"target/debug/kahoot_free\")",
+      "Bash(fuser -k 3000/tcp)",
+      "Bash(DATABASE_URL=\"postgres://kahoot:kahoot@localhost:5433/kahoot\" RUST_LOG=debug cargo run)"
     ]
   }
 }

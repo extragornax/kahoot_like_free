@@ -30,8 +30,10 @@ services:
       - .:/app
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/app/target
+      - uploads:/app/static/uploads
 
 volumes:
   pgdata:
   cargo-cache:
   target-cache:
+  uploads:

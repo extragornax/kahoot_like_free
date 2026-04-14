@@ -54,7 +54,8 @@ async fn main() {
         .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))
         .route("/games/{quiz_id}", post(handlers::game::create))
         .route("/games/{pin}/qr", get(handlers::game::qr_svg))
-        .route("/upload", post(handlers::upload::upload));
+        .route("/upload", post(handlers::upload::upload)
+            .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)));
 
     let app = Router::new()
         .nest("/api", api)
