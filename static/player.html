@@ -11,6 +11,13 @@
             box-sizing: border-box;
         }
 
+        html {
+            font-size: 18px;
+        }
+
+        @media (min-width: 400px) { html { font-size: 20px; } }
+        @media (min-width: 500px) { html { font-size: 22px; } }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #46178f;
@@ -43,26 +50,27 @@
         /* ── Join screen ── */
 
         #join-screen .title {
-            font-size: 2.4rem;
+            font-size: 2.6rem;
             font-weight: 900;
-            margin-bottom: 32px;
+            margin-bottom: 2rem;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         #join-screen .form {
             width: 100%;
-            max-width: 340px;
+            max-width: 400px;
+            padding: 0 1rem;
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            gap: 0.8rem;
         }
 
         #join-screen input {
             width: 100%;
-            padding: 16px;
-            font-size: 1.2rem;
+            padding: 1rem;
+            font-size: 1.1rem;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             text-align: center;
             outline: none;
             font-weight: 700;
@@ -76,11 +84,11 @@
         }
 
         #join-btn {
-            padding: 16px;
-            font-size: 1.3rem;
+            padding: 1rem;
+            font-size: 1.2rem;
             font-weight: 800;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             background: #fff;
             color: #46178f;
             cursor: pointer;
@@ -102,13 +110,13 @@
         /* ── Waiting screen ── */
 
         #waiting-screen .nickname-display {
-            font-size: 2rem;
+            font-size: 1.8rem;
             font-weight: 800;
-            margin-bottom: 20px;
+            margin-bottom: 1rem;
         }
 
         #waiting-screen .waiting-text {
-            font-size: 1.1rem;
+            font-size: 1rem;
             opacity: 0.85;
             animation: pulse 1.5s ease-in-out infinite;
         }
@@ -150,18 +158,18 @@
 
         .question-header {
             width: 100%;
-            padding: 16px 20px 12px;
+            padding: 0.8rem 1rem 0.5rem;
             flex-shrink: 0;
         }
 
         .question-counter {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             opacity: 0.7;
-            margin-bottom: 8px;
+            margin-bottom: 0.3rem;
         }
 
         .question-text {
-            font-size: 1.15rem;
+            font-size: 1.1rem;
             font-weight: 700;
             line-height: 1.3;
         }
@@ -171,24 +179,24 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            padding: 8px 12px 12px;
+            gap: 0.4rem;
+            padding: 0.4rem 0.6rem 0.6rem;
             overflow: hidden;
         }
 
         .answer-btn {
             flex: 1;
-            min-height: 60px;
+            min-height: 3rem;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             color: #fff;
             font-size: 1rem;
             font-weight: 700;
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 10px 16px;
+            gap: 0.6rem;
+            padding: 0.6rem 0.8rem;
             transition: transform 0.1s, opacity 0.15s;
             text-align: left;
         }
@@ -203,15 +211,16 @@
         }
 
         .answer-btn .shape {
-            font-size: 1.4rem;
+            font-size: 1.3rem;
             flex-shrink: 0;
-            width: 28px;
+            width: 1.6rem;
             text-align: center;
         }
 
         .answer-btn .answer-text {
             flex: 1;
             line-height: 1.2;
+            font-size: 0.95rem;
         }
 
         .answer-btn.red    { background: #e21b3c; }
@@ -226,7 +235,7 @@
         /* ── Answered screen ── */
 
         #answered-screen .checkmark {
-            font-size: 4rem;
+            font-size: 3.5rem;
             margin-bottom: 16px;
         }
 
@@ -245,8 +254,8 @@
         /* ── Result screen ── */
 
         #result-screen .result-icon {
-            font-size: 5rem;
-            margin-bottom: 12px;
+            font-size: 4rem;
+            margin-bottom: 0.6rem;
             animation: resultPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
@@ -257,23 +266,23 @@
         }
 
         #result-screen .points-earned {
-            font-size: 1.8rem;
+            font-size: 1.6rem;
             font-weight: 800;
-            margin-bottom: 8px;
+            margin-bottom: 0.4rem;
             animation: slideUp 0.4s ease 0.2s both;
         }
 
         #result-screen .speed-stats {
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             opacity: 0.8;
-            margin-bottom: 10px;
+            margin-bottom: 0.5rem;
             animation: slideUp 0.4s ease 0.35s both;
         }
 
         #result-screen .speed-bar-container {
             width: 80%;
             max-width: 280px;
-            height: 8px;
+            height: 0.4rem;
             background: rgba(255,255,255,0.15);
             border-radius: 4px;
             margin-bottom: 14px;
@@ -309,38 +318,40 @@
         /* ── Final screen ── */
 
         #final-screen .game-over-title {
-            font-size: 2rem;
+            font-size: 1.8rem;
             font-weight: 900;
-            margin-bottom: 16px;
+            margin-bottom: 0.8rem;
         }
 
         #final-screen .final-rank {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: 700;
-            margin-bottom: 6px;
+            margin-bottom: 0.3rem;
         }
 
         #final-screen .final-score {
-            font-size: 1.1rem;
+            font-size: 1rem;
             opacity: 0.85;
-            margin-bottom: 24px;
+            margin-bottom: 1.2rem;
         }
 
         .leaderboard {
             width: 100%;
-            max-width: 320px;
-            margin-bottom: 28px;
+            max-width: 400px;
+            padding: 0 0.5rem;
+            margin-bottom: 1.4rem;
         }
 
         .leaderboard-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 16px;
+            padding: 0.6rem 0.8rem;
             background: rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            margin-bottom: 6px;
+            border-radius: 8px;
+            margin-bottom: 0.35rem;
             font-weight: 600;
+            font-size: 0.95rem;
         }
 
         .leaderboard-row .lb-rank {
@@ -360,11 +371,11 @@
         }
 
         .play-again-btn {
-            padding: 14px 40px;
-            font-size: 1.2rem;
+            padding: 0.8rem 2.5rem;
+            font-size: 1.1rem;
             font-weight: 800;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             background: #fff;
             color: #46178f;
             cursor: pointer;

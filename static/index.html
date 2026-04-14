@@ -1001,6 +1001,69 @@
             80% { opacity: 1; }
             100% { opacity: 0; }
         }
+        /* ── Mobile responsive ── */
+        @media (max-width: 768px) {
+            .auth-card {
+                padding: 28px 20px;
+                width: 95vw;
+            }
+            .auth-card h1 { font-size: 2rem; }
+            .auth-card input { padding: 14px; font-size: 1.05rem; }
+            .auth-submit { padding: 14px; font-size: 1.05rem; }
+
+            .top-bar { padding: 14px 16px; }
+            .top-bar h1 { font-size: 1.3rem; }
+            .dashboard-body { padding: 20px 16px; }
+
+            .btn { padding: 10px 18px; font-size: 0.95rem; }
+            .btn-small { padding: 8px 14px; font-size: 0.85rem; }
+
+            .quiz-item { padding: 14px 16px; flex-direction: column; gap: 10px; align-items: flex-start; }
+            .quiz-item-actions { align-self: flex-end; }
+
+            .create-body { padding: 20px 16px; }
+            .create-body h2 { font-size: 1.5rem; }
+            .question-block { padding: 16px; }
+            .media-uploads { flex-direction: column; gap: 12px; }
+
+            .lobby-pin { font-size: 60px; letter-spacing: 6px; }
+            .lobby-url { font-size: 0.9rem; padding: 10px 14px; }
+            .lobby-qr img { width: 160px; height: 160px; }
+
+            #question-screen { padding: 16px 16px; }
+            .question-text { font-size: 1.6rem; margin-bottom: 20px; }
+            .question-image { max-height: 140px; }
+            .answers-grid { gap: 10px; }
+            .answer-block { padding: 14px 16px; font-size: 1.1rem; min-height: 70px; }
+
+            .results-chart { margin-bottom: 24px; }
+            .chart-bar-label { width: 120px; font-size: 0.85rem; }
+            .chart-bar-fill { font-size: 0.9rem; padding-right: 8px; }
+
+            .podium-bar { width: 100px; }
+            .podium-1st .podium-bar { height: 130px; }
+            .podium-2nd .podium-bar { height: 95px; }
+            .podium-3rd .podium-bar { height: 65px; }
+            .podium-name { font-size: 1rem; }
+
+            .final-title { font-size: 1.8rem; }
+            .reveal-label { font-size: 1.8rem; }
+        }
+
+        @media (max-width: 480px) {
+            .lobby-pin { font-size: 44px; letter-spacing: 4px; }
+            .lobby-title { font-size: 1.3rem; }
+
+            .answers-grid { grid-template-columns: 1fr !important; }
+            .answer-block { min-height: 50px; font-size: 1rem; }
+            .question-text { font-size: 1.3rem; }
+
+            .podium { gap: 8px; }
+            .podium-bar { width: 80px; font-size: 1.8rem; }
+            .podium-1st .podium-bar { height: 100px; }
+            .podium-2nd .podium-bar { height: 75px; }
+            .podium-3rd .podium-bar { height: 55px; }
+        }
     </style>
 </head>
 <body>
