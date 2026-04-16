@@ -166,6 +166,7 @@ This makes mass bot registration expensive without adding friction for real user
 |---------|---------|-------------|
 | `DATABASE_URL` | `postgres://kahoot:kahoot@localhost:5433/kahoot` | PostgreSQL connection string |
 | `PORT` | `3000` | Server listen port |
+| `DB_MAX_CONNECTIONS` | `5` | Maximum database connection pool size |
 
 ## Project structure
 

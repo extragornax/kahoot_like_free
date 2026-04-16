@@ -1,13 +1,14 @@
+use dashmap::DashMap;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 
-pub type GameManager = Arc<RwLock<HashMap<String, GameSession>>>;
+pub type GameManager = Arc<DashMap<String, GameSession>>;
 
 pub fn new_manager() -> GameManager {
-    Arc::new(RwLock::new(HashMap::new()))
+    Arc::new(DashMap::new())
 }
 
 pub fn generate_pin() -> String {
@@ -100,9 +101,7 @@ impl GameSession {
 
     pub fn leaderboard(&self) -> Vec<LeaderboardEntry> {
         let mut entries: Vec<_> = self
-            .players
-            .iter()
-            .map(|(_, p)| LeaderboardEntry {
+            .players.values().map(|p| LeaderboardEntry {
                 nickname: p.nickname.clone(),
                 score: p.score,
             })

@@ -1451,7 +1451,9 @@
     async function uploadFile(file) {
         const form = new FormData();
         form.append('file', file);
-        const res = await fetch('/api/upload', { method: 'POST', body: form });
+        const headers = {};
+        if (currentToken) headers['Authorization'] = 'Bearer ' + currentToken;
+        const res = await fetch('/api/upload', { method: 'POST', headers, body: form });
         if (!res.ok) throw new Error('Upload failed');
         const data = await res.json();
         return data.url;

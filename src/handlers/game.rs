@@ -6,6 +6,7 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use serde_json::json;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -51,32 +52,42 @@ pub async fn create(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut quiz_questions = Vec::new();
-    for q in &questions {
-        let answers: Vec<Answer> =
-            sqlx::query_as("SELECT * FROM answers WHERE question_id = $1 ORDER BY position")
-                .bind(q.id)
-                .fetch_all(&state.db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        quiz_questions.push(QuestionData {
-            text: q.text.clone(),
-            answers: answers
-                .into_iter()
-                .map(|a| AnswerChoice {
-                    text: a.text,
-                    is_correct: a.is_correct,
-                })
-                .collect(),
-            time_limit_secs: q.time_limit_secs,
-            image_url: q.image_url.clone(),
-        });
-    }
-
-    if quiz_questions.is_empty() {
+    if questions.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
+
+    // Batch fetch all answers (avoids N+1)
+    let question_ids: Vec<Uuid> = questions.iter().map(|q| q.id).collect();
+    let all_answers: Vec<Answer> =
+        sqlx::query_as("SELECT * FROM answers WHERE question_id = ANY($1) ORDER BY question_id, position")
+            .bind(&question_ids)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut answers_by_question: HashMap<Uuid, Vec<Answer>> = HashMap::new();
+    for answer in all_answers {
+        answers_by_question.entry(answer.question_id).or_default().push(answer);
+    }
+
+    let quiz_questions: Vec<QuestionData> = questions
+        .iter()
+        .map(|q| {
+            let answers = answers_by_question.remove(&q.id).unwrap_or_default();
+            QuestionData {
+                text: q.text.clone(),
+                answers: answers
+                    .into_iter()
+                    .map(|a| AnswerChoice {
+                        text: a.text,
+                        is_correct: a.is_correct,
+                    })
+                    .collect(),
+                time_limit_secs: q.time_limit_secs,
+                image_url: q.image_url.clone(),
+            }
+        })
+        .collect();
 
     let quiz_data = QuizData {
         title: quiz.title,
@@ -85,15 +96,14 @@ pub async fn create(
         music_url: quiz.music_url,
     };
 
-    let mut games = state.games.write().await;
     let pin = loop {
         let candidate = game::generate_pin();
-        if !games.contains_key(&candidate) {
+        if !state.games.contains_key(&candidate) {
             break candidate;
         }
     };
 
-    games.insert(pin.clone(), GameSession::new(pin.clone(), quiz_data));
+    state.games.insert(pin.clone(), GameSession::new(pin.clone(), quiz_data));
 
     Ok(Json(CreateGameResponse { pin }))
 }
@@ -110,12 +120,9 @@ pub async fn qr_svg(
     Query(query): Query<QrQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    // Verify the game exists
-    let games = state.games.read().await;
-    if !games.contains_key(&pin) {
+    if !state.games.contains_key(&pin) {
         return Err(StatusCode::NOT_FOUND);
     }
-    drop(games);
 
     let code = qrcode::QrCode::new(query.url.as_bytes()).map_err(|_| StatusCode::BAD_REQUEST)?;
     let svg = code
@@ -142,10 +149,9 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
-    // Register host
-    {
-        let mut games = state.games.write().await;
-        let Some(session) = games.get_mut(&pin) else {
+    // Register host — build message inside guard, send after dropping it
+    let lobby_msg = {
+        let Some(mut session) = state.games.get_mut(&pin) else {
             let _ = ws_sender
                 .send(Message::Text(
                     json!({"type": "error", "message": "Game not found"})
@@ -158,21 +164,20 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
         session.host_tx = Some(tx);
 
         let player_list: Vec<_> = session.players.values().map(|p| p.nickname.clone()).collect();
-        let _ = ws_sender
-            .send(Message::Text(
-                json!({
-                    "type": "lobby",
-                    "pin": pin,
-                    "quiz_title": session.quiz.title,
-                    "players": player_list,
-                    "background_url": session.quiz.background_url,
-                    "music_url": session.quiz.music_url,
-                })
-                .to_string()
-                .into(),
-            ))
-            .await;
-    }
+        json!({
+            "type": "lobby",
+            "pin": pin,
+            "quiz_title": session.quiz.title,
+            "players": player_list,
+            "background_url": session.quiz.background_url,
+            "music_url": session.quiz.music_url,
+        })
+        .to_string()
+        // guard dropped here
+    };
+    let _ = ws_sender
+        .send(Message::Text(lobby_msg.into()))
+        .await;
 
     // Forward channel → WebSocket
     let send_task = tokio::spawn(async move {
@@ -195,25 +200,21 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
 
         match msg_type {
             "start" => {
-                let mut games = state.games.write().await;
-                if let Some(session) = games.get_mut(&pin) {
-                    if session.phase == GamePhase::Lobby {
-                        start_question(session, &state, &pin);
+                if let Some(mut session) = state.games.get_mut(&pin)
+                    && session.phase == GamePhase::Lobby {
+                        start_question(&mut session, &state, &pin);
                     }
-                }
             }
             "next" => {
-                let mut games = state.games.write().await;
-                if let Some(session) = games.get_mut(&pin) {
-                    if session.phase == GamePhase::Results {
+                if let Some(mut session) = state.games.get_mut(&pin)
+                    && session.phase == GamePhase::Results {
                         if session.current_question + 1 < session.quiz.questions.len() {
                             session.current_question += 1;
-                            start_question(session, &state, &pin);
+                            start_question(&mut session, &state, &pin);
                         } else {
-                            finish_game(session);
+                            finish_game(&mut session);
                         }
                     }
-                }
             }
             _ => {}
         }
@@ -221,13 +222,11 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
 
     // Host disconnected — tear down game
     send_task.abort();
-    let mut games = state.games.write().await;
-    if let Some(session) = games.get_mut(&pin) {
+    if let Some((_, session)) = state.games.remove(&pin) {
         session.send_to_all_players(
             &json!({"type": "game_over", "reason": "Host disconnected"}).to_string(),
         );
     }
-    games.remove(&pin);
 }
 
 // --- WebSocket: player ---
@@ -249,24 +248,20 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
     let nickname = loop {
         match ws_receiver.next().await {
             Some(Ok(Message::Text(text))) => {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                    if parsed["type"].as_str() == Some("join") {
-                        if let Some(nick) = parsed["nickname"].as_str() {
-                            if !nick.trim().is_empty() {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text)
+                    && parsed["type"].as_str() == Some("join")
+                        && let Some(nick) = parsed["nickname"].as_str()
+                            && !nick.trim().is_empty() {
                                 break nick.trim().to_string();
                             }
-                        }
-                    }
-                }
             }
             _ => return,
         }
     };
 
-    // Register player in game session
-    {
-        let mut games = state.games.write().await;
-        let Some(session) = games.get_mut(&pin) else {
+    // Register player — build message inside guard, send after dropping it
+    let join_msg = {
+        let Some(mut session) = state.games.get_mut(&pin) else {
             let _ = ws_sender
                 .send(Message::Text(
                     json!({"type": "error", "message": "Game not found"})
@@ -278,13 +273,9 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
         };
 
         if session.phase != GamePhase::Lobby {
-            let _ = ws_sender
-                .send(Message::Text(
-                    json!({"type": "error", "message": "Game already started"})
-                        .to_string()
-                        .into(),
-                ))
-                .await;
+            let msg = json!({"type": "error", "message": "Game already started"}).to_string();
+            drop(session); // drop guard before await
+            let _ = ws_sender.send(Message::Text(msg.into())).await;
             return;
         }
 
@@ -307,18 +298,16 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             .to_string(),
         );
 
-        let _ = ws_sender
-            .send(Message::Text(
-                json!({
-                    "type": "joined",
-                    "message": "Waiting for host to start the game...",
-                    "background_url": session.quiz.background_url,
-                })
-                .to_string()
-                .into(),
-            ))
-            .await;
-    }
+        let bg = session.quiz.background_url.clone();
+        json!({
+            "type": "joined",
+            "message": "Waiting for host to start the game...",
+            "background_url": bg,
+        })
+        .to_string()
+        // guard dropped here
+    };
+    let _ = ws_sender.send(Message::Text(join_msg.into())).await;
 
     // Forward channel → WebSocket
     let send_task = tokio::spawn(async move {
@@ -339,11 +328,10 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             continue;
         };
 
-        if msg_type == "answer" {
-            if let Some(index) = parsed["index"].as_u64() {
-                let mut games = state.games.write().await;
-                if let Some(session) = games.get_mut(&pin) {
-                    if session.phase == GamePhase::Question
+        if msg_type == "answer"
+            && let Some(index) = parsed["index"].as_u64()
+                && let Some(mut session) = state.games.get_mut(&pin)
+                    && session.phase == GamePhase::Question
                         && !session.answers.contains_key(&player_id)
                     {
                         let time_ms = session
@@ -377,18 +365,14 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                         }
 
                         if session.all_answered() {
-                            close_question(session);
+                            close_question(&mut session);
                         }
                     }
-                }
-            }
-        }
     }
 
     // Player disconnected
     send_task.abort();
-    let mut games = state.games.write().await;
-    if let Some(session) = games.get_mut(&pin) {
+    if let Some(mut session) = state.games.get_mut(&pin) {
         session.players.remove(&player_id);
         let player_count = session.players.len();
         session.send_to_host(
@@ -404,7 +388,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             && !session.players.is_empty()
             && session.all_answered()
         {
-            close_question(session);
+            close_question(&mut session);
         }
     }
 }
@@ -458,18 +442,16 @@ fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
     let time_limit = q.time_limit_secs;
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(time_limit as u64)).await;
-        let mut games = games.write().await;
-        if let Some(session) = games.get_mut(&pin) {
-            if session.phase == GamePhase::Question && session.current_question == question_idx {
-                close_question(session);
+        if let Some(mut session) = games.get_mut(&pin)
+            && session.phase == GamePhase::Question && session.current_question == question_idx {
+                close_question(&mut session);
             }
-        }
     });
 }
 
 fn close_question(session: &mut GameSession) {
     // Snapshot scores before this round for delta calculation
-    let prev_scores: std::collections::HashMap<String, i64> = session
+    let prev_scores: HashMap<String, i64> = session
         .players
         .iter()
         .map(|(id, p)| (id.clone(), p.score))
@@ -480,8 +462,7 @@ fn close_question(session: &mut GameSession) {
     let time_limit_ms = q.time_limit_secs as u64 * 1000;
 
     // Score each answer, track timing
-    let mut player_results =
-        std::collections::HashMap::<String, (bool, i64, u64)>::new(); // (correct, points, time_ms)
+    let mut player_results = HashMap::<String, (bool, i64, u64)>::new();
     let mut answer_times: Vec<u64> = Vec::new();
 
     for (player_id, answer) in &session.answers {
@@ -526,7 +507,7 @@ fn close_question(session: &mut GameSession) {
 
     let is_last = session.current_question + 1 >= session.quiz.questions.len();
 
-    // Host results — include score gained per player for animations
+    // Host results — look up previous score by player ID directly
     session.send_to_host(
         &json!({
             "type": "results",
@@ -536,12 +517,9 @@ fn close_question(session: &mut GameSession) {
                 "count": answer_counts[i],
             })).collect::<Vec<_>>(),
             "leaderboard": leaderboard.iter().map(|e| {
-                let prev = prev_scores.values()
-                    .zip(session.players.values())
-                    .find(|(_, p)| p.nickname == e.nickname)
-                    .map(|(_, p)| prev_scores.iter().find(|(id, _)| {
-                        session.players.get(*id).map(|pl| pl.nickname == e.nickname).unwrap_or(false)
-                    }).map(|(_, s)| *s).unwrap_or(0))
+                let prev = prev_scores.iter()
+                    .find(|(id, _)| session.players.get(*id).map(|p| p.nickname == e.nickname).unwrap_or(false))
+                    .map(|(_, &s)| s)
                     .unwrap_or(0);
                 json!({
                     "nickname": e.nickname,
@@ -564,7 +542,6 @@ fn close_question(session: &mut GameSession) {
             .position(|e| e.nickname == player.nickname)
             .unwrap_or(0)
             + 1;
-        // Speed rank: how many answered faster
         let speed_rank = answer_times.iter().filter(|&&t| t < time_ms).count() + 1;
         let answered = player_results.contains_key(player_id);
 
@@ -593,7 +570,7 @@ fn finish_game(session: &mut GameSession) {
 
     session.send_to_host(&json!({"type": "finished", "leaderboard": leaderboard}).to_string());
 
-    for (_, player) in &session.players {
+    for player in session.players.values() {
         let rank = leaderboard
             .iter()
             .position(|e| e.nickname == player.nickname)

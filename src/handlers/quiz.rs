@@ -1,4 +1,5 @@
 use axum::{Json, extract::State, http::StatusCode};
+use std::collections::HashMap;
 
 use crate::AppState;
 use crate::auth::AuthUser;
@@ -60,16 +61,27 @@ pub async fn get(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut question_details = Vec::new();
-    for question in questions {
-        let answers: Vec<Answer> =
-            sqlx::query_as("SELECT * FROM answers WHERE question_id = $1 ORDER BY position")
-                .bind(question.id)
-                .fetch_all(&state.db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        question_details.push(QuestionDetail { question, answers });
+    // Batch fetch all answers (avoids N+1)
+    let question_ids: Vec<uuid::Uuid> = questions.iter().map(|q| q.id).collect();
+    let all_answers: Vec<Answer> =
+        sqlx::query_as("SELECT * FROM answers WHERE question_id = ANY($1) ORDER BY question_id, position")
+            .bind(&question_ids)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut answers_by_question: HashMap<uuid::Uuid, Vec<Answer>> = HashMap::new();
+    for answer in all_answers {
+        answers_by_question.entry(answer.question_id).or_default().push(answer);
     }
+
+    let question_details: Vec<QuestionDetail> = questions
+        .into_iter()
+        .map(|question| {
+            let answers = answers_by_question.remove(&question.id).unwrap_or_default();
+            QuestionDetail { question, answers }
+        })
+        .collect();
 
     Ok(Json(QuizDetail {
         quiz,
@@ -225,16 +237,14 @@ pub async fn update(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Clean up replaced media files
-    if old_quiz.background_url != req.background_url {
-        if let Some(url) = &old_quiz.background_url {
+    if old_quiz.background_url != req.background_url
+        && let Some(url) = &old_quiz.background_url {
             delete_upload(url);
         }
-    }
-    if old_quiz.music_url != req.music_url {
-        if let Some(url) = &old_quiz.music_url {
+    if old_quiz.music_url != req.music_url
+        && let Some(url) = &old_quiz.music_url {
             delete_upload(url);
         }
-    }
 
     Ok(Json(quiz))
 }

@@ -1,8 +1,11 @@
 use axum::{Json, extract::Multipart, http::StatusCode};
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
+
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
 const MAX_IMAGE_DIMENSION: u32 = 1920;
+const COMPRESS_THRESHOLD: usize = 512_000; // skip re-encoding for images under 512KB that fit in dimensions
 
 #[derive(serde::Serialize)]
 pub struct UploadResponse {
@@ -10,6 +13,7 @@ pub struct UploadResponse {
 }
 
 pub async fn upload(
+    AuthUser(_, _): AuthUser,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, StatusCode> {
     tracing::info!("upload: handler entered");
@@ -56,16 +60,16 @@ pub async fn upload(
         let data_vec = data.to_vec();
         let compressed = match tokio::task::spawn_blocking(move || compress_image(&data_vec)).await
         {
-            Ok(Ok(bytes)) => {
+            Ok(Some(bytes)) => {
                 tracing::info!("upload: compressed to {} bytes", bytes.len());
                 Some(bytes)
             }
-            Ok(Err(e)) => {
-                tracing::warn!("upload: compression error: {e}");
+            Ok(None) => {
+                tracing::info!("upload: compression skipped (small file within dimensions)");
                 None
             }
             Err(e) => {
-                tracing::warn!("upload: spawn_blocking failed (panic?): {e}");
+                tracing::warn!("upload: spawn_blocking failed: {e}");
                 None
             }
         };
@@ -82,8 +86,6 @@ pub async fn upload(
                 url: format!("/uploads/{}", filename),
             }));
         }
-
-        tracing::warn!("upload: compression failed for {original_name}, saving original");
     }
 
     let filename = format!("{}.{}", Uuid::new_v4(), ext);
@@ -99,13 +101,22 @@ pub async fn upload(
     }))
 }
 
-fn compress_image(data: &[u8]) -> Result<Vec<u8>, image::ImageError> {
-    let img = image::load_from_memory(data)?;
-    let img = if img.width() > MAX_IMAGE_DIMENSION || img.height() > MAX_IMAGE_DIMENSION {
+/// Compress and resize an image. Returns None if the image is small enough to skip.
+fn compress_image(data: &[u8]) -> Option<Vec<u8>> {
+    let img = image::load_from_memory(data).ok()?;
+
+    let needs_resize = img.width() > MAX_IMAGE_DIMENSION || img.height() > MAX_IMAGE_DIMENSION;
+
+    // Skip compression for small files that don't need resizing
+    if !needs_resize && data.len() < COMPRESS_THRESHOLD {
+        return None;
+    }
+
+    let img = if needs_resize {
         img.resize(
             MAX_IMAGE_DIMENSION,
             MAX_IMAGE_DIMENSION,
-            image::imageops::FilterType::Lanczos3,
+            image::imageops::FilterType::Triangle, // much faster than Lanczos3, good enough for web
         )
     } else {
         img
@@ -119,18 +130,18 @@ fn compress_image(data: &[u8]) -> Result<Vec<u8>, image::ImageError> {
         rgb.width(),
         rgb.height(),
         image::ExtendedColorType::Rgb8,
-    )?;
-    Ok(buf.into_inner())
+    )
+    .ok()?;
+    Some(buf.into_inner())
 }
 
 /// Delete an uploaded file given its URL path (e.g. "/uploads/abc.jpg")
 pub fn delete_upload(url: &str) {
-    if let Some(filename) = url.strip_prefix("/uploads/") {
-        if !filename.contains('/') && !filename.contains("..") {
+    if let Some(filename) = url.strip_prefix("/uploads/")
+        && !filename.contains('/') && !filename.contains("..") {
             let path = format!("static/uploads/{}", filename);
             tokio::spawn(async move {
                 let _ = tokio::fs::remove_file(&path).await;
             });
         }
-    }
 }

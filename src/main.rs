@@ -1,10 +1,12 @@
 use axum::{
     Router,
+    http::HeaderValue,
     routing::{get, post},
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 mod auth;
 mod game;
@@ -25,8 +27,13 @@ async fn main() {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://kahoot:kahoot@localhost:5433/kahoot".to_string());
 
+    let max_connections: u32 = std::env::var("DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(max_connections)
         .connect(&database_url)
         .await
         .expect("failed to connect to database");
@@ -74,7 +81,14 @@ async fn main() {
         .route("/ws/host/{pin}", get(handlers::game::host_ws))
         .route("/ws/play/{pin}", get(handlers::game::player_ws))
         .route("/health", get(|| async { "ok" }))
-        .fallback_service(ServeDir::new("static"))
+        .fallback_service(
+            ServeDir::new("static")
+                .precompressed_gzip()
+        )
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=3600"),
+        ))
         .with_state(state);
 
     let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3000u16);
