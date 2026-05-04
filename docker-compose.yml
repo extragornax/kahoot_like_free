@@ -5,8 +5,8 @@ services:
       POSTGRES_USER: kahoot
       POSTGRES_PASSWORD: kahoot
       POSTGRES_DB: kahoot
-    ports:
-      - "5433:5432"
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

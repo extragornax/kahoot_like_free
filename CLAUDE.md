@@ -26,10 +26,10 @@ docker compose logs -f app    # follow app logs
 docker compose down           # stop everything
 ```
 
-- **PostgreSQL** on `localhost:5433` (container port 5432), credentials: `kahoot/kahoot`, database: `kahoot`
+- **PostgreSQL** internal to Docker network (port 5432), credentials: `kahoot/kahoot`, database: `kahoot`
 - **App** connects via `DATABASE_URL=postgres://kahoot:kahoot@db:5432/kahoot` (internal docker network)
 - Source is volume-mounted — `cargo-watch` recompiles on file changes
-- For local dev outside Docker: `DATABASE_URL="postgres://kahoot:kahoot@localhost:5433/kahoot" cargo run`
+- For local dev outside Docker: run `docker compose up -d db` first, then use `DATABASE_URL="postgres://kahoot:kahoot@db:5432/kahoot" cargo run` (requires the app to be on the Docker network, or use `docker compose up` instead)
 
 ## Architecture
 

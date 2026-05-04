@@ -25,7 +25,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://kahoot:kahoot@localhost:5433/kahoot".to_string());
+        .unwrap_or_else(|_| "postgres://kahoot:kahoot@db:5432/kahoot".to_string());
 
     let max_connections: u32 = std::env::var("DB_MAX_CONNECTIONS")
         .ok()

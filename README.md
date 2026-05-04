@@ -42,11 +42,8 @@ Host a quiz on your computer, players join from their phones by scanning a QR co
 ### Development
 
 ```bash
-# Start the database
-docker compose up -d db
-
-# Run the server locally (with hot reload via cargo-watch, or plain cargo run)
-DATABASE_URL="postgres://kahoot:kahoot@localhost:5433/kahoot" cargo run
+# Run everything (db + app) via Docker
+docker compose up -d
 ```
 
 The server prints:
@@ -164,7 +161,7 @@ This makes mass bot registration expensive without adding friction for real user
 
 | Env var | Default | Description |
 |---------|---------|-------------|
-| `DATABASE_URL` | `postgres://kahoot:kahoot@localhost:5433/kahoot` | PostgreSQL connection string |
+| `DATABASE_URL` | `postgres://kahoot:kahoot@db:5432/kahoot` | PostgreSQL connection string (inside Docker network) |
 | `PORT` | `3000` | Server listen port |
 | `DB_MAX_CONNECTIONS` | `5` | Maximum database connection pool size |
 
