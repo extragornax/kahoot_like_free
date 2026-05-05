@@ -20,7 +20,7 @@ services:
       dockerfile: Dockerfile.prod
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgres://kahoot:kahoot@db:5432/kahoot
     depends_on:
