@@ -1,12 +1,17 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
+use std::sync::LazyLock;
 
 type HmacSha256 = Hmac<Sha256>;
 
 const DIFFICULTY: usize = 4; // leading hex zeros required (4 = ~65k attempts)
 const CHALLENGE_TTL_SECS: u64 = 120;
-const SECRET: &[u8] = b"pow-secret-change-me-in-prod";
+
+/// HMAC secret for proof-of-work challenges. Read once from the `POW_SECRET`
+/// env var; panics if unset (validated at startup in main).
+static SECRET: LazyLock<Vec<u8>> =
+    LazyLock::new(|| std::env::var("POW_SECRET").expect("POW_SECRET must be set").into_bytes());
 
 /// Generate a challenge string: base64(timestamp_be_bytes ++ hmac)
 pub fn generate_challenge() -> String {
@@ -16,7 +21,7 @@ pub fn generate_challenge() -> String {
         .as_secs();
     let ts_bytes = ts.to_be_bytes();
 
-    let mut mac = HmacSha256::new_from_slice(SECRET).unwrap();
+    let mut mac = HmacSha256::new_from_slice(SECRET.as_slice()).unwrap();
     mac.update(&ts_bytes);
     let sig = mac.finalize().into_bytes();
 
@@ -48,7 +53,7 @@ pub fn verify(challenge: &str, nonce: &str) -> bool {
     }
 
     // Verify HMAC
-    let mut mac = HmacSha256::new_from_slice(SECRET).unwrap();
+    let mut mac = HmacSha256::new_from_slice(SECRET.as_slice()).unwrap();
     mac.update(&ts_bytes);
     if mac.verify_slice(sig).is_err() {
         return false;

@@ -24,6 +24,14 @@ pub struct AppState {
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    // Fail fast if required secrets are missing, rather than panicking on the
+    // first request that needs them.
+    for key in ["JWT_SECRET", "POW_SECRET"] {
+        if std::env::var(key).map(|v| v.is_empty()).unwrap_or(true) {
+            panic!("{key} environment variable must be set (see .env.example)");
+        }
+    }
+
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://kahoot:kahoot@db:5432/kahoot".to_string());
 

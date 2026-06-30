@@ -2,9 +2,9 @@ services:
   db:
     image: postgres:17
     environment:
-      POSTGRES_USER: kahoot
-      POSTGRES_PASSWORD: kahoot
-      POSTGRES_DB: kahoot
+      POSTGRES_USER: ${POSTGRES_USER:-kahoot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kahoot}
+      POSTGRES_DB: ${POSTGRES_DB:-kahoot}
     expose:
       - "5432"
     volumes:
@@ -22,7 +22,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgres://kahoot:kahoot@db:5432/kahoot
+      DATABASE_URL: postgres://${POSTGRES_USER:-kahoot}:${POSTGRES_PASSWORD:-kahoot}@db:5432/${POSTGRES_DB:-kahoot}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (see .env.example)}
+      POW_SECRET: ${POW_SECRET:?POW_SECRET must be set (see .env.example)}
+      APP_BASE_URL: ${APP_BASE_URL:-}
     depends_on:
       db:
         condition: service_healthy

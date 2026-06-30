@@ -3,13 +3,16 @@ use axum::{
     http::{StatusCode, request::Parts},
 };
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use std::sync::LazyLock;
 use uuid::Uuid;
 
 use crate::models::Claims;
 use crate::AppState;
 
-// TODO: move to env var
-const JWT_SECRET: &str = "dev-secret-change-me";
+/// Signing secret for JWTs. Read once from the `JWT_SECRET` env var; panics if
+/// unset (validated at startup in main).
+static JWT_SECRET: LazyLock<String> =
+    LazyLock::new(|| std::env::var("JWT_SECRET").expect("JWT_SECRET must be set"));
 
 pub fn create_token(user_id: Uuid, is_admin: bool) -> Result<String, StatusCode> {
     let exp = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize;
