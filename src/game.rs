@@ -123,6 +123,8 @@ pub enum GamePhase {
     OpenAnswer,
     /// Voting on the open answers collected in the OpenAnswer phase.
     Voting,
+    /// Numeric-answer question (closest-wins): players type a number.
+    Numeric,
     Results,
     Finished,
 }
@@ -136,6 +138,8 @@ pub struct GameSession {
     pub current_question: usize,
     pub question_started_at: Option<Instant>,
     pub answers: HashMap<String, PlayerAnswer>,
+    /// Numeric-answer submissions for the current question: player_id -> (value, time_ms).
+    pub numeric_answers: HashMap<String, (f64, u64)>,
     /// Open-answer submissions for the current question: player_id -> text.
     pub open_answers: HashMap<String, String>,
     /// Voting options built from open answers: (author_player_id, text), index = vote target.
@@ -160,6 +164,7 @@ impl GameSession {
             current_question: 0,
             question_started_at: None,
             answers: HashMap::new(),
+            numeric_answers: HashMap::new(),
             open_answers: HashMap::new(),
             vote_options: Vec::new(),
             votes: HashMap::new(),

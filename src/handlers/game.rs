@@ -420,6 +420,34 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                         }
                     }
 
+        if msg_type == "numeric_answer"
+            && let Some(value) = parsed["value"].as_f64()
+            && value.is_finite()
+            && let Some(mut session) = state.games.get_mut(&pin)
+            && session.phase == GamePhase::Numeric
+            && !session.numeric_answers.contains_key(&player_id)
+        {
+            let time_ms = session
+                .question_started_at
+                .map(|t| t.elapsed().as_millis() as u64)
+                .unwrap_or(0);
+            session
+                .numeric_answers
+                .insert(player_id.clone(), (value, time_ms));
+
+            let count = session.numeric_answers.len();
+            let total = session.players.len();
+            session.send_to_host(
+                &json!({ "type": "answer_count", "count": count, "total": total }).to_string(),
+            );
+            if let Some(player) = session.players.get(&player_id) {
+                let _ = player.tx.send(json!({"type": "answer_accepted"}).to_string());
+            }
+            if count >= total {
+                close_numeric(&mut session);
+            }
+        }
+
         if msg_type == "open_answer"
             && let Some(text) = parsed["text"].as_str()
             && let Some(mut session) = state.games.get_mut(&pin)
@@ -523,6 +551,12 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
         {
             close_question(&mut session);
         }
+        if session.phase == GamePhase::Numeric
+            && !session.players.is_empty()
+            && session.numeric_answers.len() >= session.players.len()
+        {
+            close_numeric(&mut session);
+        }
     }
 }
 
@@ -530,6 +564,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
 
 fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
     session.answers.clear();
+    session.numeric_answers.clear();
     session.open_answers.clear();
     session.vote_options.clear();
     session.votes.clear();
@@ -562,6 +597,12 @@ fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
     // Open-answer: players type free text, then vote.
     if kind == "open" {
         start_open(session, state, pin, idx, total);
+        return;
+    }
+
+    // Numeric / closest-wins: players type a number.
+    if kind == "numeric" {
+        start_numeric(session, state, pin, idx, total);
         return;
     }
 
@@ -772,6 +813,193 @@ fn close_question(session: &mut GameSession) {
                 "total_answered": answer_times.len(),
                 "your_answer": your_answer,
                 "correct_answer": correct_answer_text,
+            })
+            .to_string(),
+        );
+    }
+}
+
+// --- Numeric / closest-wins flow ---
+
+/// Points awarded by finishing rank (closest distance to the correct value).
+/// Rank index 0 → 1st place, 1 → 2nd, 2 → 3rd. Time bonus shrinks them
+/// proportionally for slower submissions, same shape as the MCQ scoring.
+const NUMERIC_RANK_POINTS: &[i64] = &[1000, 500, 250];
+
+fn start_numeric(session: &mut GameSession, state: &AppState, pin: &str, idx: usize, total: usize) {
+    session.phase = GamePhase::Numeric;
+    session.question_started_at = Some(std::time::Instant::now());
+
+    let q = &session.quiz.questions[idx];
+    let msg = json!({
+        "type": "numeric_question",
+        "index": idx,
+        "total": total,
+        "text": q.text,
+        "image_url": q.image_url,
+        "time_limit": q.time_limit_secs,
+    })
+    .to_string();
+    session.send_to_host(&msg);
+    session.send_to_all_players(&msg);
+
+    // Auto-close after the time limit.
+    let games = state.games.clone();
+    let pin = pin.to_string();
+    let question_idx = idx;
+    let time_limit = q.time_limit_secs;
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(time_limit as u64)).await;
+        if let Some(mut session) = games.get_mut(&pin)
+            && session.phase == GamePhase::Numeric
+            && session.current_question == question_idx
+        {
+            close_numeric(&mut session);
+        }
+    });
+}
+
+fn close_numeric(session: &mut GameSession) {
+    let prev_scores: HashMap<String, i64> = session
+        .players
+        .iter()
+        .map(|(id, p)| (id.clone(), p.score))
+        .collect();
+
+    session.phase = GamePhase::Results;
+    let q = &session.quiz.questions[session.current_question];
+    let time_limit_ms = q.time_limit_secs as u64 * 1000;
+    let streak_mode = session.streak_mode;
+
+    // Parse the correct value from the first answer row. If unparseable, nobody scores.
+    let correct: Option<f64> = q
+        .answers
+        .first()
+        .and_then(|a| a.text.trim().parse::<f64>().ok());
+
+    // (player_id, value, time_ms, error)
+    let mut ordered: Vec<(String, f64, u64, f64)> = Vec::new();
+    if let Some(c) = correct {
+        for (pid, (v, t)) in &session.numeric_answers {
+            ordered.push((pid.clone(), *v, *t, (*v - c).abs()));
+        }
+    }
+    // Smallest error first; ties broken by faster time.
+    ordered.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal)
+        .then(a.2.cmp(&b.2)));
+
+    // Map player_id -> (rank index, base_points). Awarded only to top-3.
+    let mut rank_map = HashMap::<String, (usize, i64)>::new();
+    for (i, (pid, _v, t, _e)) in ordered.iter().enumerate() {
+        let base = NUMERIC_RANK_POINTS.get(i).copied().unwrap_or(0);
+        let base = if base > 0 && time_limit_ms > 0 {
+            let time_taken = (*t).min(time_limit_ms);
+            // Same shape as MCQ: keep at least half, lose up to half to time.
+            ((base as f64) * (1.0 - 0.5 * (time_taken as f64) / (time_limit_ms as f64))).round()
+                as i64
+        } else {
+            base
+        };
+        rank_map.insert(pid.clone(), (i, base));
+    }
+
+    // Update streaks + apply multiplier, then award.
+    let mut player_results = HashMap::<String, (bool, i64, i64, u32, usize, Option<f64>, u64)>::new();
+    for (pid, player) in &mut session.players {
+        let answered = session.numeric_answers.contains_key(pid);
+        let your_value = session.numeric_answers.get(pid).map(|(v, _)| *v);
+        let your_time = session.numeric_answers.get(pid).map(|(_, t)| *t).unwrap_or(0);
+        let (rank_idx, base_points) = rank_map.get(pid).copied().unwrap_or((usize::MAX, 0));
+        let got_points = base_points > 0;
+
+        if got_points {
+            player.streak += 1;
+        } else if answered {
+            player.streak = 0;
+        }
+        // Players who didn't answer at all leave their streak alone — same as for
+        // non-MCQ phases — to avoid penalising someone who lagged out.
+
+        let awarded = if streak_mode == StreakMode::Multiplier && got_points {
+            let m = game::streak_multiplier(player.streak);
+            ((base_points as f64) * m).round() as i64
+        } else {
+            base_points
+        };
+
+        player.score += awarded;
+        player_results.insert(
+            pid.clone(),
+            (got_points, base_points, awarded, player.streak, rank_idx, your_value, your_time),
+        );
+    }
+
+    let leaderboard = session.leaderboard();
+    let is_last = session.current_question + 1 >= session.quiz.questions.len();
+
+    // Host results: list of all submissions sorted closest→farthest.
+    session.send_to_host(
+        &json!({
+            "type": "numeric_results",
+            "correct": correct,
+            "submissions": ordered.iter().enumerate().map(|(i, (pid, v, _t, err))| {
+                let nick = session.players.get(pid).map(|p| p.nickname.clone()).unwrap_or_default();
+                let avatar = session.players.get(pid).map(|p| p.avatar.clone()).unwrap_or_default();
+                let base = NUMERIC_RANK_POINTS.get(i).copied().unwrap_or(0);
+                json!({
+                    "rank": i + 1,
+                    "nickname": nick,
+                    "avatar": avatar,
+                    "value": v,
+                    "error": err,
+                    "rank_points": base,
+                })
+            }).collect::<Vec<_>>(),
+            "leaderboard": leaderboard.iter().map(|e| {
+                let prev = prev_scores.iter()
+                    .find(|(id, _)| session.players.get(*id).map(|p| p.nickname == e.nickname).unwrap_or(false))
+                    .map(|(_, &s)| s)
+                    .unwrap_or(0);
+                json!({
+                    "nickname": e.nickname,
+                    "avatar": e.avatar,
+                    "score": e.score,
+                    "gained": e.score - prev,
+                })
+            }).collect::<Vec<_>>(),
+            "is_last": is_last,
+        })
+        .to_string(),
+    );
+
+    // Per-player result.
+    for (pid, player) in &session.players {
+        let (got_points, base_points, awarded, streak, rank_idx, your_value, time_ms) =
+            player_results.get(pid).copied().unwrap_or((false, 0, 0, 0, usize::MAX, None, 0));
+        let lb_rank = leaderboard
+            .iter()
+            .position(|e| e.nickname == player.nickname)
+            .unwrap_or(0)
+            + 1;
+        let answered = your_value.is_some();
+        let your_rank: Option<usize> = if answered { Some(rank_idx + 1) } else { None };
+
+        let _ = player.tx.send(
+            json!({
+                "type": "numeric_result",
+                "correct_answer": correct,
+                "your_value": your_value,
+                "your_rank": your_rank,
+                "total_submissions": ordered.len(),
+                "got_points": got_points,
+                "base_points": base_points,
+                "points": awarded,
+                "streak": streak,
+                "streak_mode": streak_mode.as_str(),
+                "score": player.score,
+                "rank": lb_rank,
+                "total_players": session.players.len(),
+                "time_ms": if answered { time_ms } else { 0 },
             })
             .to_string(),
         );
@@ -992,6 +1220,18 @@ fn player_state_msg(session: &GameSession, player_id: &str) -> String {
             let q = &session.quiz.questions[idx];
             json!({
                 "type": "open_question",
+                "index": idx,
+                "total": total,
+                "text": q.text,
+                "image_url": q.image_url,
+                "time_limit": q.time_limit_secs,
+            })
+            .to_string()
+        }
+        GamePhase::Numeric => {
+            let q = &session.quiz.questions[idx];
+            json!({
+                "type": "numeric_question",
                 "index": idx,
                 "total": total,
                 "text": q.text,

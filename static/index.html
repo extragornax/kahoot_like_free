@@ -1155,6 +1155,49 @@
             border-color: rgba(255, 255, 255, 0.4);
         }
 
+        /* Numeric question / results */
+        #numeric-question-screen { flex-direction: column; padding: 30px 40px; }
+        #numeric-results-screen { flex-direction: column; padding: 40px; align-items: center; }
+
+        .numeric-correct-banner {
+            font-size: 1.6rem;
+            font-weight: 800;
+            padding: 14px 28px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+
+        .numeric-correct-banner .nc-label {
+            opacity: 0.7;
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-right: 14px;
+        }
+
+        .submission-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .submission-row.top1 { background: linear-gradient(90deg, rgba(245,197,24,0.3), rgba(255,255,255,0.1)); }
+        .submission-row.top2 { background: rgba(192,192,192,0.18); }
+        .submission-row.top3 { background: rgba(205,127,50,0.18); }
+
+        .submission-row .sub-rank { font-weight: 800; width: 32px; }
+        .submission-row .sub-name { flex: 1; }
+        .submission-row .sub-value { font-weight: 800; min-width: 80px; text-align: right; }
+        .submission-row .sub-error { opacity: 0.65; font-size: 0.85rem; min-width: 100px; text-align: right; }
+        .submission-row .sub-points { font-weight: 800; color: #2ecc71; min-width: 70px; text-align: right; }
+
         /* Preview Screen */
         #preview-screen {
             flex-direction: column;
@@ -1538,6 +1581,29 @@
     <div class="question-text" id="open-question-text"></div>
     <img class="question-image" id="open-question-image" style="display:none">
     <div class="question-number">Players are typing their answers…</div>
+</div>
+
+<!-- Screen 5e: Numeric question (host) -->
+<div id="numeric-question-screen" class="screen">
+    <div class="question-top">
+        <div class="question-number" id="numeric-question-number"></div>
+        <div class="answer-counter" id="numeric-answer-counter">0 / 0 answered</div>
+    </div>
+    <div class="timer-bar-container">
+        <div class="timer-bar" id="numeric-timer-bar-host"></div>
+    </div>
+    <div class="question-text" id="numeric-question-text"></div>
+    <img class="question-image" id="numeric-question-image" style="display:none">
+    <div class="question-number">Players are typing a number — closest wins.</div>
+</div>
+
+<!-- Screen 5f: Numeric results (host) -->
+<div id="numeric-results-screen" class="screen">
+    <div class="results-title">Closest Wins</div>
+    <div class="numeric-correct-banner" id="numeric-correct-banner"></div>
+    <div class="results-chart" id="numeric-submissions"></div>
+    <div class="results-leaderboard" id="numeric-leaderboard"></div>
+    <button class="btn btn-white mt-10" id="numeric-next-btn">Next</button>
 </div>
 
 <!-- Screen 5d: Voting (host) -->
@@ -2048,6 +2114,20 @@
             return;
         }
 
+        if (kind === 'numeric') {
+            const correct = q.answers && q.answers[0] ? q.answers[0].text : '—';
+            stage.innerHTML = `
+                <div class="preview-meta">
+                    <span>Numeric · closest wins</span>
+                    ${badge}
+                </div>
+                <div class="preview-question-text">${escapeHtml(q.text)}</div>
+                ${imageHtml}
+                <div class="numeric-correct-banner" style="margin:0 auto;"><span class="nc-label">Correct</span>${escapeHtml(String(correct))}</div>
+            `;
+            return;
+        }
+
         // Multiple-choice / true-false
         const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'teal'];
         const icons = ['▲', '◆', '●', '■', '⬣', '✦'];
@@ -2200,7 +2280,9 @@
             (quiz.questions || []).forEach(q => {
                 const n = q.answers.length;
                 const k = q.kind || (n === 0 ? 'slide' : 'choice');
-                const type = k === 'slide' ? 'slide' : k === 'open' ? 'open'
+                const type = k === 'slide' ? 'slide'
+                    : k === 'open' ? 'open'
+                    : k === 'numeric' ? 'numeric'
                     : n <= 2 ? 'tf' : n <= 4 ? 'mc4' : 'mc6';
                 addQuestionBlock({
                     text: q.text,
@@ -2248,6 +2330,7 @@
                     <option value="mc4"${qType === 'mc4' ? ' selected' : ''}>Multiple Choice (4)</option>
                     <option value="mc6"${qType === 'mc6' ? ' selected' : ''}>Multiple Choice (6)</option>
                     <option value="open"${qType === 'open' ? ' selected' : ''}>Open answer (players type + vote)</option>
+                    <option value="numeric"${qType === 'numeric' ? ' selected' : ''}>Numeric (closest wins)</option>
                     <option value="slide"${qType === 'slide' ? ' selected' : ''}>Section / Slide (no answers)</option>
                 </select>
             </div>
@@ -2269,6 +2352,10 @@
                 <div class="answer-row answer-mc6"><input type="text" class="a-text" placeholder="Answer 5"><label><input type="checkbox" class="a-correct"> Correct</label></div>
                 <div class="answer-row answer-mc6"><input type="text" class="a-text" placeholder="Answer 6"><label><input type="checkbox" class="a-correct"> Correct</label></div>
             </div>
+            <div class="numeric-correct-row" style="display:none; margin-top:10px;">
+                <label style="display:block; font-weight:700; margin-bottom:6px;">Correct number</label>
+                <input type="text" inputmode="decimal" class="q-numeric" placeholder="e.g. 42 or 3.14" style="width:200px; padding:10px 12px; border-radius:8px; border:2px solid transparent; background:rgba(255,255,255,0.15); color:#fff; outline:none; font-size:1rem;">
+            </div>
             <div class="time-limit-row">
                 <label>Time limit:</label>
                 <input type="number" class="q-time" value="20" min="5" max="120"> seconds
@@ -2283,11 +2370,13 @@
             const v = typeSelect.value;
             const isSlide = v === 'slide';
             const isOpen = v === 'open';
-            const noAnswers = isSlide || isOpen;
-            block.querySelector('.answers-list').style.display = noAnswers ? 'none' : '';
+            const isNumeric = v === 'numeric';
+            const noChoiceAnswers = isSlide || isOpen || isNumeric;
+            block.querySelector('.answers-list').style.display = noChoiceAnswers ? 'none' : '';
+            block.querySelector('.numeric-correct-row').style.display = isNumeric ? 'block' : 'none';
             block.querySelector('.time-limit-row').style.display = isSlide ? 'none' : '';
             block.querySelector('.q-text').placeholder = isSlide ? 'Section title...' : 'Question text...';
-            if (noAnswers) return;
+            if (noChoiceAnswers) return;
             mc4Rows.forEach(r => r.style.display = (v === 'tf') ? 'none' : 'flex');
             mc6Rows.forEach(r => r.style.display = (v === 'mc6') ? 'flex' : 'none');
             if (v === 'tf') {
@@ -2361,6 +2450,10 @@
                 if (texts[i]) texts[i].value = a.text;
                 if (checks[i]) checks[i].checked = a.is_correct;
             });
+            // Numeric: the correct number is stored as the first answer row's text.
+            if (prefill.type === 'numeric' && (prefill.answers || [])[0]) {
+                block.querySelector('.q-numeric').value = prefill.answers[0].text || '';
+            }
         }
 
         applyType();
@@ -2402,6 +2495,23 @@
             if (qTypeVal === 'open') {
                 const timeLimit = parseInt(block.querySelector('.q-time').value) || 20;
                 questions.push({ text, time_limit_secs: timeLimit, image_url: block._imageUrl || null, kind: 'open', answers: [] });
+                continue;
+            }
+
+            // Numeric: a single answer row stores the correct number as text.
+            if (qTypeVal === 'numeric') {
+                const raw = block.querySelector('.q-numeric').value.replace(',', '.').trim();
+                if (!raw) { toast('Numeric questions need a correct number.'); return; }
+                const n = parseFloat(raw);
+                if (!isFinite(n)) { toast('Correct number is not a valid number.'); return; }
+                const timeLimit = parseInt(block.querySelector('.q-time').value) || 20;
+                questions.push({
+                    text,
+                    time_limit_secs: timeLimit,
+                    image_url: block._imageUrl || null,
+                    kind: 'numeric',
+                    answers: [{ text: String(n), is_correct: true }],
+                });
                 continue;
             }
 
@@ -2544,6 +2654,14 @@
             case 'open_question':
                 showOpenQuestion(data);
                 sfx.play('go');
+                break;
+            case 'numeric_question':
+                showNumericQuestionHost(data);
+                sfx.play('go');
+                break;
+            case 'numeric_results':
+                showNumericResultsHost(data);
+                sfx.play('reveal');
                 break;
             case 'voting':
                 showVoting(data);
@@ -2694,6 +2812,72 @@
             if (fill) fill.style.width = (c / max * 100) + '%';
         });
     }
+
+    // --- Numeric / closest-wins (host) ---
+    function showNumericQuestionHost(data) {
+        showScreen('numeric-question-screen');
+        document.getElementById('numeric-question-number').textContent = 'Question ' + (data.index + 1) + ' of ' + data.total;
+        document.getElementById('numeric-question-text').textContent = data.text;
+        document.querySelectorAll('.answer-counter').forEach(el => el.textContent = '0 / ' + currentTotalPlayers + ' responded');
+        const img = document.getElementById('numeric-question-image');
+        if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
+        else { img.style.display = 'none'; }
+        const bar = document.getElementById('numeric-timer-bar-host');
+        bar.style.animation = 'none';
+        void bar.offsetWidth;
+        bar.style.animation = 'timerShrink ' + data.time_limit + 's linear forwards';
+    }
+
+    function showNumericResultsHost(data) {
+        showScreen('numeric-results-screen');
+        const banner = document.getElementById('numeric-correct-banner');
+        banner.innerHTML = data.correct !== null && data.correct !== undefined
+            ? `<span class="nc-label">Correct</span>${escapeHtml(String(data.correct))}`
+            : '<span class="nc-label">Correct</span>—';
+
+        const chart = document.getElementById('numeric-submissions');
+        chart.innerHTML = '';
+        (data.submissions || []).forEach(s => {
+            const rank = s.rank;
+            const row = document.createElement('div');
+            const rankClass = rank === 1 ? ' top1' : rank === 2 ? ' top2' : rank === 3 ? ' top3' : '';
+            row.className = 'submission-row' + rankClass;
+            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '#' + rank;
+            const errText = isFinite(s.error) ? (Math.round(s.error * 1000) / 1000) : '—';
+            row.innerHTML = `
+                <div class="sub-rank">${medal}</div>
+                <div class="sub-name"><span class="player-avatar">${escapeHtml(s.avatar || '')}</span> ${escapeHtml(s.nickname)}</div>
+                <div class="sub-value">${s.value}</div>
+                <div class="sub-error">Δ ${errText}</div>
+                <div class="sub-points">${s.rank_points > 0 ? '+' + s.rank_points : ''}</div>
+            `;
+            chart.appendChild(row);
+        });
+
+        const lb = document.getElementById('numeric-leaderboard');
+        lb.innerHTML = '<h3>Leaderboard</h3>';
+        (data.leaderboard || []).slice(0, 5).forEach((entry, i) => {
+            const row = document.createElement('div');
+            row.className = 'leaderboard-row' + (i === 0 ? ' top1' : '');
+            row.style.animationDelay = (i * 0.12) + 's';
+            row.innerHTML = `
+                <div class="leaderboard-rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i+1)}</div>
+                <div class="leaderboard-name"><span class="player-avatar">${escapeHtml(entry.avatar || '')}</span> ${escapeHtml(entry.nickname)}</div>
+                <div class="leaderboard-score">${entry.score}</div>
+                ${entry.gained > 0 ? `<div class="leaderboard-gained">+${entry.gained}</div>` : '<div class="leaderboard-gained"></div>'}
+            `;
+            lb.appendChild(row);
+        });
+
+        const btn = document.getElementById('numeric-next-btn');
+        btn.textContent = data.is_last ? 'See Final Results' : 'Next Question';
+    }
+
+    document.getElementById('numeric-next-btn').addEventListener('click', () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'next' }));
+        }
+    });
 
     // --- Open answer (host) ---
     function showOpenQuestion(data) {

@@ -443,6 +443,23 @@
         </div>
     </div>
 
+    <!-- 3e. Numeric answer input screen -->
+    <div id="numeric-screen" class="screen">
+        <div class="timer-bar-container">
+            <div class="timer-bar" id="numeric-timer-bar"></div>
+        </div>
+        <div class="question-header">
+            <div class="question-counter" id="numeric-counter"></div>
+            <div class="question-text" id="numeric-text"></div>
+            <img class="question-image-player" id="numeric-image" style="display:none">
+            <div style="font-size:0.7rem; opacity:0.7; margin-top:1vh;">Closest answer wins. Top 3 score.</div>
+        </div>
+        <div class="open-input-row">
+            <input type="text" id="numeric-input" inputmode="decimal" placeholder="Your number" autocomplete="off">
+            <button id="numeric-submit-btn">Submit</button>
+        </div>
+    </div>
+
     <!-- 3d. Voting screen -->
     <div id="vote-screen" class="screen">
         <div class="question-header">
@@ -738,6 +755,11 @@
                     sfx.play('go');
                     break;
 
+                case 'numeric_question':
+                    showNumericQuestion(data);
+                    sfx.play('go');
+                    break;
+
                 case 'voting':
                     showVoting(data);
                     sfx.play('go');
@@ -750,6 +772,11 @@
                 case 'result':
                     showResult(data);
                     sfx.play(data.correct ? 'correct' : 'wrong');
+                    break;
+
+                case 'numeric_result':
+                    showNumericResult(data);
+                    sfx.play(data.got_points ? 'correct' : 'wrong');
                     break;
 
                 case 'finished':
@@ -853,6 +880,99 @@
         document.getElementById('open-input').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') submitOpen();
         });
+
+        // ── Numeric / closest-wins ──
+        function showNumericQuestion(data) {
+            document.getElementById('numeric-counter').textContent = `Question ${data.index + 1} of ${data.total}`;
+            document.getElementById('numeric-text').textContent = data.text;
+            const img = document.getElementById('numeric-image');
+            if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
+            else { img.style.display = 'none'; }
+            const input = document.getElementById('numeric-input');
+            input.value = '';
+            input.disabled = false;
+            document.getElementById('numeric-submit-btn').disabled = false;
+            // Restart timer bar
+            const bar = document.getElementById('numeric-timer-bar');
+            bar.classList.remove('running');
+            void bar.offsetWidth;
+            bar.style.animationDuration = data.time_limit + 's';
+            bar.classList.add('running');
+            showScreen('numeric-screen');
+            input.focus();
+        }
+
+        function submitNumeric() {
+            const input = document.getElementById('numeric-input');
+            const raw = input.value.replace(',', '.').trim();
+            if (!raw) return;
+            const value = parseFloat(raw);
+            if (!isFinite(value)) return;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'numeric_answer', value }));
+            }
+            input.disabled = true;
+            document.getElementById('numeric-submit-btn').disabled = true;
+            sfx.play('tap');
+        }
+        document.getElementById('numeric-submit-btn').addEventListener('click', submitNumeric);
+        document.getElementById('numeric-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitNumeric();
+        });
+
+        function showNumericResult(data) {
+            const icon = document.getElementById('result-icon');
+            icon.textContent = data.got_points ? '✓' : '✗';
+            icon.style.color = data.got_points ? '#2ecc71' : '#e74c3c';
+            icon.style.animation = 'none';
+            void icon.offsetWidth;
+            icon.style.animation = '';
+
+            document.getElementById('points-earned').textContent = `+${data.points || 0} points`;
+
+            // Reuse the streak badge logic
+            const streakBadge = document.getElementById('streak-badge');
+            const streak = typeof data.streak === 'number' ? data.streak : 0;
+            const streakMode = data.streak_mode || 'off';
+            if (streak >= 2 && streakMode !== 'off') {
+                const bonus = (data.points || 0) - (data.base_points || 0);
+                streakBadge.innerHTML = `<span class="streak-flame">🔥</span>${streak} in a row${bonus > 0 ? `<span class="streak-bonus">+${bonus} bonus</span>` : ''}`;
+                streakBadge.classList.add('visible');
+            } else {
+                streakBadge.classList.remove('visible');
+            }
+
+            // Reuse the answer-recap rows for "Your number" vs "Correct number"
+            const recap = document.getElementById('answer-recap');
+            recap.innerHTML = '';
+            const yourRow = document.createElement('div');
+            yourRow.className = 'recap-row ' + (data.got_points ? 'correct' : 'wrong');
+            yourRow.innerHTML = `<div class="recap-label">Your number</div><div class="recap-value">${data.your_value !== null && data.your_value !== undefined ? data.your_value : '<em style="opacity:0.6">No answer</em>'}</div>`;
+            recap.appendChild(yourRow);
+            const correctRow = document.createElement('div');
+            correctRow.className = 'recap-row correct';
+            correctRow.innerHTML = `<div class="recap-label">Correct</div><div class="recap-value">${data.correct_answer !== null && data.correct_answer !== undefined ? data.correct_answer : '—'}</div>`;
+            recap.appendChild(correctRow);
+
+            // Speed/rank wording
+            const speedStats = document.getElementById('speed-stats');
+            const speedBar = document.getElementById('speed-bar');
+            if (data.your_rank) {
+                speedStats.textContent = `${ordinal(data.your_rank)} closest of ${data.total_submissions}`;
+                const pct = Math.max(8, Math.min(100, 100 - (data.your_rank - 1) / Math.max(1, data.total_submissions) * 100));
+                speedBar.style.width = '0%';
+                requestAnimationFrame(() => { speedBar.style.width = pct + '%'; });
+                speedBar.style.background = data.got_points ? '#2ecc71' : '#e74c3c';
+            } else {
+                speedStats.textContent = "Didn't answer in time";
+                speedBar.style.width = '0%';
+            }
+
+            document.getElementById('total-score').textContent = `Total: ${data.score} points`;
+            document.getElementById('rank-display').textContent =
+                `${ordinal(data.rank)} of ${data.total_players} players`;
+            showScreen('result-screen');
+        }
 
         // ── Voting ──
         function showVoting(data) {
