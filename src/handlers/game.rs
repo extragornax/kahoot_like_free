@@ -643,7 +643,16 @@ fn close_question(session: &mut GameSession) {
         .to_string(),
     );
 
-    // Individual results to each player — include timing stats
+    // Text of the correct option(s) — joined with " / " when more than one is correct.
+    let correct_answer_text: String = q
+        .answers
+        .iter()
+        .filter(|a| a.is_correct)
+        .map(|a| a.text.clone())
+        .collect::<Vec<_>>()
+        .join(" / ");
+
+    // Individual results to each player — include timing stats and the picked answer text.
     for (player_id, player) in &session.players {
         let (correct, points, time_ms) =
             player_results.get(player_id).copied().unwrap_or((false, 0, 0));
@@ -654,6 +663,11 @@ fn close_question(session: &mut GameSession) {
             + 1;
         let speed_rank = answer_times.iter().filter(|&&t| t < time_ms).count() + 1;
         let answered = player_results.contains_key(player_id);
+        let your_answer = session
+            .answers
+            .get(player_id)
+            .and_then(|a| q.answers.get(a.answer_index))
+            .map(|a| a.text.clone());
 
         let _ = player.tx.send(
             json!({
@@ -668,6 +682,8 @@ fn close_question(session: &mut GameSession) {
                 "fastest_ms": fastest_ms,
                 "average_ms": average_ms,
                 "total_answered": answer_times.len(),
+                "your_answer": your_answer,
+                "correct_answer": correct_answer_text,
             })
             .to_string(),
         );

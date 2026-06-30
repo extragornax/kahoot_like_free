@@ -249,7 +249,24 @@
         }
 
         #result-screen .points-earned { font-size: 1.4rem; font-weight: 800; margin-bottom: 0.8vh; animation: slideUp 0.4s ease 0.2s both; }
-        #result-screen .speed-stats { font-size: 0.7rem; opacity: 0.8; margin-bottom: 1vh; animation: slideUp 0.4s ease 0.35s both; }
+        #result-screen .answer-recap {
+            width: 90%; max-width: 360px;
+            font-size: 0.75rem;
+            margin-bottom: 1vh;
+            animation: slideUp 0.4s ease 0.3s both;
+            display: flex; flex-direction: column; gap: 0.3rem;
+        }
+        #result-screen .answer-recap .recap-row {
+            background: rgba(255,255,255,0.12);
+            border-radius: 0.4rem;
+            padding: 0.35rem 0.6rem;
+            text-align: left;
+        }
+        #result-screen .answer-recap .recap-label { opacity: 0.7; font-size: 0.65rem; }
+        #result-screen .answer-recap .recap-value { font-weight: 700; word-break: break-word; }
+        #result-screen .answer-recap .recap-row.correct { background: rgba(46,204,113,0.25); }
+        #result-screen .answer-recap .recap-row.wrong { background: rgba(231,76,60,0.25); }
+        #result-screen .speed-stats { font-size: 0.7rem; opacity: 0.8; margin-bottom: 1vh; animation: slideUp 0.4s ease 0.4s both; }
 
         #result-screen .speed-bar-container {
             width: 75%; max-width: 320px; height: 0.3rem;
@@ -390,6 +407,7 @@
     <div id="result-screen" class="screen">
         <div class="result-icon" id="result-icon"></div>
         <div class="points-earned" id="points-earned"></div>
+        <div class="answer-recap" id="answer-recap"></div>
         <div class="speed-stats" id="speed-stats"></div>
         <div class="speed-bar-container"><div class="speed-bar" id="speed-bar"></div></div>
         <div class="total-score" id="total-score"></div>
@@ -816,6 +834,22 @@
             icon.style.animation = '';
 
             document.getElementById('points-earned').textContent = `+${data.points} points`;
+
+            // Answer recap — what you picked vs. what was correct
+            const recap = document.getElementById('answer-recap');
+            recap.innerHTML = '';
+            if (data.your_answer !== undefined || data.correct_answer !== undefined) {
+                const yourRow = document.createElement('div');
+                yourRow.className = 'recap-row ' + (data.correct ? 'correct' : 'wrong');
+                yourRow.innerHTML = `<div class="recap-label">Your answer</div><div class="recap-value">${data.your_answer ? escapeHtml(data.your_answer) : '<em style="opacity:0.6">No answer</em>'}</div>`;
+                recap.appendChild(yourRow);
+                if (!data.correct && data.correct_answer) {
+                    const correctRow = document.createElement('div');
+                    correctRow.className = 'recap-row correct';
+                    correctRow.innerHTML = `<div class="recap-label">Correct answer</div><div class="recap-value">${escapeHtml(data.correct_answer)}</div>`;
+                    recap.appendChild(correctRow);
+                }
+            }
 
             // Speed stats
             const speedStats = document.getElementById('speed-stats');
