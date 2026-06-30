@@ -1890,8 +1890,9 @@
                 const checks = block.querySelectorAll('.answers-list .a-correct');
                 if (!texts[0].value) texts[0].value = 'True';
                 if (!texts[1].value) texts[1].value = 'False';
-                checks[0].checked = true;
-                checks[1].checked = false;
+                // Only default to True when nothing is selected yet — don't
+                // clobber a saved/edited selection (e.g. False).
+                if (!checks[0].checked && !checks[1].checked) checks[0].checked = true;
             }
         }
         typeSelect.addEventListener('change', applyType);
