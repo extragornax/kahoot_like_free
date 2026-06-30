@@ -1042,6 +1042,43 @@
             overflow: hidden;
         }
 
+        .reaction-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 5;
+        }
+
+        .floating-reaction {
+            position: absolute;
+            bottom: 8%;
+            font-size: 2.4rem;
+            opacity: 0;
+            animation: reactionFloat 2.6s ease-out forwards;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+            user-select: none;
+        }
+
+        .floating-reaction .reaction-nick {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-align: center;
+            margin-top: 2px;
+            opacity: 0.85;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        @keyframes reactionFloat {
+            0%   { transform: translateY(0) scale(0.6); opacity: 0; }
+            15%  { transform: translateY(-30px) scale(1.1); opacity: 1; }
+            80%  { transform: translateY(-200px) scale(1); opacity: 1; }
+            100% { transform: translateY(-300px) scale(0.9); opacity: 0; }
+        }
+
+        #lobby-screen { position: relative; }
+
         .streak-picker {
             margin-top: 18px;
             display: flex;
@@ -1448,6 +1485,7 @@
 
 <!-- Screen 4: Lobby -->
 <div id="lobby-screen" class="screen">
+    <div class="reaction-layer" id="reaction-layer"></div>
     <div class="lobby-title">Join at</div>
     <div class="lobby-url" id="lobby-url"></div>
     <div class="lobby-qr" id="lobby-qr"></div>
@@ -2521,10 +2559,24 @@
             case 'finished':
                 showFinal(data);
                 break;
+            case 'reaction':
+                spawnReaction(data.emoji, data.nickname);
+                break;
             case 'error':
                 toast(data.message || 'An error occurred.');
                 break;
         }
+    }
+
+    function spawnReaction(emoji, nickname) {
+        const layer = document.getElementById('reaction-layer');
+        if (!layer || !emoji) return;
+        const el = document.createElement('div');
+        el.className = 'floating-reaction';
+        el.style.left = (10 + Math.random() * 80) + '%';
+        el.innerHTML = `${escapeHtml(emoji)}${nickname ? `<span class="reaction-nick">${escapeHtml(nickname)}</span>` : ''}`;
+        layer.appendChild(el);
+        setTimeout(() => el.remove(), 2800);
     }
 
     function renderLobby(data) {

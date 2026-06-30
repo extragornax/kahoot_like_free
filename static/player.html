@@ -109,6 +109,30 @@
             animation: pulse 1.5s ease-in-out infinite;
         }
 
+        #waiting-screen .reaction-bar {
+            margin-top: 4vh;
+            display: flex;
+            gap: 0.5rem;
+            background: rgba(0,0,0,0.25);
+            padding: 0.45rem 0.6rem;
+            border-radius: 999px;
+        }
+
+        .reaction-btn {
+            font-size: 1.6rem;
+            background: rgba(255,255,255,0.12);
+            border: none;
+            border-radius: 50%;
+            width: 2.4rem;
+            height: 2.4rem;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.15s;
+        }
+
+        .reaction-btn:active { transform: scale(0.85); }
+        .reaction-btn:hover { background: rgba(255,255,255,0.22); }
+        .reaction-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
         @keyframes pulse {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 1; }
@@ -380,6 +404,7 @@
         <div id="waiting-avatar" style="font-size:3.5rem; margin-bottom:1vh;"></div>
         <div class="nickname-display" id="waiting-nickname"></div>
         <div class="waiting-text">Waiting for host to start...</div>
+        <div class="reaction-bar" id="reaction-bar"></div>
     </div>
 
     <!-- 3. Question screen -->
@@ -535,6 +560,27 @@
                 isMuted: () => muted,
             };
         })();
+
+        // ── Lobby reactions ──
+        const REACTIONS = ['👍', '❤️', '😂', '😮', '🎉', '🔥'];
+        const reactionBar = document.getElementById('reaction-bar');
+        REACTIONS.forEach(emoji => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'reaction-btn';
+            btn.textContent = emoji;
+            btn.addEventListener('click', () => sendReaction(emoji, btn));
+            reactionBar.appendChild(btn);
+        });
+
+        function sendReaction(emoji, btn) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ type: 'reaction', emoji }));
+            sfx.play('tap');
+            // 800ms per-button cooldown to discourage hammering.
+            btn.disabled = true;
+            setTimeout(() => { btn.disabled = false; }, 800);
+        }
 
         const sfxToggleBtn = document.getElementById('sfx-toggle');
         function refreshSfxToggle() {

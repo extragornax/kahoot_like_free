@@ -19,6 +19,14 @@ use crate::models::{Answer, Question};
 /// Seconds players have to vote on open answers.
 const VOTE_TIME_SECS: u64 = 30;
 
+/// Emoji reactions accepted from players in the lobby. Keeping this short and
+/// curated avoids treating arbitrary client input as renderable content.
+const ALLOWED_REACTIONS: &[&str] = &["👍", "❤️", "😂", "😮", "🎉", "🔥"];
+
+fn is_allowed_reaction(emoji: &str) -> bool {
+    ALLOWED_REACTIONS.iter().any(|&e| e == emoji)
+}
+
 // --- REST: create a game session from a quiz ---
 
 #[derive(serde::Serialize)]
@@ -461,6 +469,29 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                     finalize_open(&mut session);
                 }
             }
+        }
+
+        // Lobby reactions: players tap an emoji from a whitelist; the host
+        // overlays floating emojis on the lobby. Whitelisted to prevent spam.
+        if msg_type == "reaction"
+            && let Some(emoji) = parsed["emoji"].as_str()
+            && is_allowed_reaction(emoji)
+            && let Some(session) = state.games.get(&pin)
+            && session.phase == GamePhase::Lobby
+        {
+            let nickname = session
+                .players
+                .get(&player_id)
+                .map(|p| p.nickname.clone())
+                .unwrap_or_default();
+            session.send_to_host(
+                &json!({
+                    "type": "reaction",
+                    "emoji": emoji,
+                    "nickname": nickname,
+                })
+                .to_string(),
+            );
         }
     }
 
