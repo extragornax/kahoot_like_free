@@ -1017,6 +1017,135 @@
             border-color: rgba(255, 255, 255, 0.4);
         }
 
+        /* Preview Screen */
+        #preview-screen {
+            flex-direction: column;
+        }
+
+        .preview-body {
+            flex: 1;
+            padding: 30px 40px;
+            max-width: 1000px;
+            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .preview-stage {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 30px;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .preview-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95rem;
+            opacity: 0.75;
+            margin-bottom: 20px;
+        }
+
+        .preview-question-text {
+            font-size: 1.8rem;
+            font-weight: 800;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .preview-image {
+            max-height: 220px;
+            max-width: 60%;
+            border-radius: 12px;
+            margin: 0 auto 20px;
+            object-fit: contain;
+        }
+
+        .preview-answers {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .preview-answer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            min-height: 70px;
+        }
+
+        .preview-answer.red { background: #e21b3c; }
+        .preview-answer.blue { background: #1368ce; }
+        .preview-answer.green { background: #26890c; }
+        .preview-answer.yellow { background: #d89e00; }
+        .preview-answer.purple { background: #863bba; }
+        .preview-answer.teal { background: #009d9a; }
+
+        .preview-answer .preview-correct-mark {
+            margin-left: auto;
+            font-size: 1.4rem;
+            color: #f5f5f5;
+        }
+
+        .preview-answer.wrong-dim { opacity: 0.45; }
+
+        .preview-empty {
+            text-align: center;
+            font-size: 1.1rem;
+            opacity: 0.7;
+            padding: 40px 20px;
+        }
+
+        .preview-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .preview-counter {
+            font-weight: 700;
+            font-size: 1rem;
+            opacity: 0.85;
+        }
+
+        .preview-badge {
+            background: rgba(0,0,0,0.25);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-left: 8px;
+        }
+
+        .preview-section-banner {
+            text-align: center;
+            font-size: 0.9rem;
+            opacity: 0.7;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        @media (max-width: 768px) {
+            .preview-body { padding: 16px; }
+            .preview-stage { padding: 18px; min-height: auto; }
+            .preview-question-text { font-size: 1.3rem; }
+            .preview-answers { grid-template-columns: 1fr; }
+            .preview-answer { font-size: 1rem; padding: 12px 16px; min-height: 50px; }
+        }
+
         /* Utilities */
         .mt-10 { margin-top: 10px; }
         .mt-20 { margin-top: 20px; }
@@ -1291,6 +1420,22 @@
     <button class="btn btn-white mt-20" id="back-dashboard-final-btn" style="display:none">Back to Dashboard</button>
 </div>
 <div class="confetti-container" id="confetti-container"></div>
+
+<!-- Screen: Quiz Preview -->
+<div id="preview-screen" class="screen">
+    <div class="top-bar">
+        <h1 id="preview-title">Preview</h1>
+        <button class="btn btn-white btn-small" id="preview-exit-btn">Exit Preview</button>
+    </div>
+    <div class="preview-body">
+        <div class="preview-stage" id="preview-stage"></div>
+        <div class="preview-nav">
+            <button class="btn btn-white btn-small" id="preview-prev-btn">&#8592; Previous</button>
+            <div class="preview-counter" id="preview-counter"></div>
+            <button class="btn btn-white btn-small" id="preview-next-btn">Next &#8594;</button>
+        </div>
+    </div>
+</div>
 
 <!-- Screen 8: Admin -->
 <div id="admin-screen" class="screen">
@@ -1625,6 +1770,7 @@
                     <div class="quiz-item-title">${escapeHtml(q.title)}</div>
                     <div class="quiz-item-actions">
                         <button class="btn btn-blue btn-small edit-btn" data-id="${q.id}">Edit</button>
+                        <button class="btn btn-white btn-small preview-btn" data-id="${q.id}">Preview</button>
                         <button class="btn btn-green btn-small play-btn" data-id="${q.id}">Play</button>
                         <button class="btn btn-white btn-small export-btn" data-id="${q.id}" data-title="${escapeHtml(q.title)}">Export</button>
                         <button class="btn btn-red btn-small delete-btn" data-id="${q.id}">Delete</button>
@@ -1635,6 +1781,9 @@
 
             list.querySelectorAll('.edit-btn').forEach(btn => {
                 btn.addEventListener('click', () => editQuiz(btn.dataset.id));
+            });
+            list.querySelectorAll('.preview-btn').forEach(btn => {
+                btn.addEventListener('click', () => previewQuiz(btn.dataset.id));
             });
             list.querySelectorAll('.play-btn').forEach(btn => {
                 btn.addEventListener('click', () => startGame(btn.dataset.id));
@@ -1684,6 +1833,113 @@
             toast('Failed to delete quiz.');
         }
     }
+
+    // --- Quiz Preview ---
+    let previewQuestions = [];
+    let previewIndex = 0;
+    let previewTitle = '';
+
+    async function previewQuiz(id) {
+        try {
+            const res = await apiFetch('/api/quizzes/' + id);
+            if (!res.ok) { toast('Failed to load quiz.'); return; }
+            const quiz = await res.json();
+            previewQuestions = quiz.questions || [];
+            previewTitle = quiz.title || 'Preview';
+            previewIndex = 0;
+            document.getElementById('preview-title').textContent = 'Preview: ' + previewTitle;
+            if (!previewQuestions.length) {
+                toast('This quiz has no questions yet.');
+                return;
+            }
+            showScreen('preview-screen');
+            renderPreview();
+        } catch (e) {
+            toast('Network error.');
+        }
+    }
+
+    function renderPreview() {
+        const stage = document.getElementById('preview-stage');
+        const counter = document.getElementById('preview-counter');
+        const q = previewQuestions[previewIndex];
+        const total = previewQuestions.length;
+        counter.textContent = `Question ${previewIndex + 1} of ${total}`;
+
+        document.getElementById('preview-prev-btn').disabled = previewIndex === 0;
+        document.getElementById('preview-next-btn').disabled = previewIndex >= total - 1;
+
+        const kind = q.kind || (q.answers && q.answers.length === 0 ? 'slide' : 'choice');
+        const imageHtml = q.image_url
+            ? `<img class="preview-image" src="${escapeHtml(q.image_url)}" alt="">`
+            : '';
+
+        let badge = '';
+        if (kind === 'slide') badge = '<span class="preview-badge">Section</span>';
+        else if (kind === 'open') badge = '<span class="preview-badge">Open answer</span>';
+        else badge = `<span class="preview-badge">${q.time_limit_secs}s</span>`;
+
+        if (kind === 'slide') {
+            stage.innerHTML = `
+                <div class="preview-section-banner">Section / Slide</div>
+                <div class="preview-question-text">${escapeHtml(q.text)}</div>
+                ${imageHtml}
+            `;
+            return;
+        }
+
+        if (kind === 'open') {
+            stage.innerHTML = `
+                <div class="preview-meta">
+                    <span>Open-answer question</span>
+                    ${badge}
+                </div>
+                <div class="preview-question-text">${escapeHtml(q.text)}</div>
+                ${imageHtml}
+                <div class="preview-empty">Players type their answer in real time, then vote on the best one.</div>
+            `;
+            return;
+        }
+
+        // Multiple-choice / true-false
+        const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'teal'];
+        const icons = ['▲', '◆', '●', '■', '⬣', '✦'];
+        const answers = q.answers || [];
+        const anyCorrect = answers.some(a => a.is_correct);
+        const answersHtml = answers.map((a, i) => {
+            const correctClass = anyCorrect && !a.is_correct ? ' wrong-dim' : '';
+            const mark = a.is_correct ? '<span class="preview-correct-mark">✓</span>' : '';
+            return `
+                <div class="preview-answer ${colors[i] || 'blue'}${correctClass}">
+                    <span style="font-size:1.4rem; width:32px;">${icons[i] || ''}</span>
+                    <span style="flex:1;">${escapeHtml(a.text)}</span>
+                    ${mark}
+                </div>
+            `;
+        }).join('');
+
+        stage.innerHTML = `
+            <div class="preview-meta">
+                <span>Multiple choice &middot; ${answers.length} options</span>
+                ${badge}
+            </div>
+            <div class="preview-question-text">${escapeHtml(q.text)}</div>
+            ${imageHtml}
+            <div class="preview-answers">${answersHtml}</div>
+            ${anyCorrect ? '' : '<div class="preview-empty" style="margin-top:14px;">No correct answer marked.</div>'}
+        `;
+    }
+
+    document.getElementById('preview-prev-btn').addEventListener('click', () => {
+        if (previewIndex > 0) { previewIndex--; renderPreview(); }
+    });
+    document.getElementById('preview-next-btn').addEventListener('click', () => {
+        if (previewIndex < previewQuestions.length - 1) { previewIndex++; renderPreview(); }
+    });
+    document.getElementById('preview-exit-btn').addEventListener('click', () => {
+        previewQuestions = [];
+        loadDashboard();
+    });
 
     // --- Create / Edit Quiz ---
     let editingQuizId = null;
