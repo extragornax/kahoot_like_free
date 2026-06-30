@@ -1553,6 +1553,7 @@
                     <div class="quiz-item-actions">
                         <button class="btn btn-blue btn-small edit-btn" data-id="${q.id}">Edit</button>
                         <button class="btn btn-green btn-small play-btn" data-id="${q.id}">Play</button>
+                        <button class="btn btn-white btn-small export-btn" data-id="${q.id}" data-title="${escapeHtml(q.title)}">Export</button>
                         <button class="btn btn-red btn-small delete-btn" data-id="${q.id}">Delete</button>
                     </div>
                 `;
@@ -1564,6 +1565,9 @@
             });
             list.querySelectorAll('.play-btn').forEach(btn => {
                 btn.addEventListener('click', () => startGame(btn.dataset.id));
+            });
+            list.querySelectorAll('.export-btn').forEach(btn => {
+                btn.addEventListener('click', () => exportQuiz(btn.dataset.id, btn.dataset.title));
             });
             list.querySelectorAll('.delete-btn').forEach(btn => {
                 btn.addEventListener('click', () => deleteQuiz(btn.dataset.id));
@@ -1577,6 +1581,25 @@
         const d = document.createElement('div');
         d.textContent = text;
         return d.innerHTML;
+    }
+
+    async function exportQuiz(id, title) {
+        try {
+            const res = await apiFetch('/api/quizzes/' + id + '/export.xlsx');
+            if (!res.ok) { toast('Export failed.'); return; }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = (title || 'quiz').replace(/[^a-z0-9]+/gi, '_') + '.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            toast('Exported. Import it at create.kahoot.it (Add question > Import).');
+        } catch (e) {
+            toast('Export failed.');
+        }
     }
 
     async function deleteQuiz(id) {

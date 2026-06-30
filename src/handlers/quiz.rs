@@ -1,4 +1,5 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::{Json, extract::State, http::StatusCode, http::header};
 use std::collections::HashMap;
 
 use crate::AppState;
@@ -287,4 +288,145 @@ pub async fn delete(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// --- Export to Kahoot import spreadsheet (.xlsx) ---
+
+/// Kahoot accepts only a fixed set of per-question time limits.
+const KAHOOT_TIME_LIMITS: [i32; 8] = [5, 10, 20, 30, 60, 90, 120, 240];
+
+fn snap_time_limit(secs: i32) -> i32 {
+    KAHOOT_TIME_LIMITS
+        .into_iter()
+        .min_by_key(|t| (t - secs).abs())
+        .unwrap_or(20)
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
+/// Export a quiz as a Kahoot question-import spreadsheet. Quiz-type questions
+/// only: carries question text, up to 4 answers, time limit, correct answer(s).
+/// Images and any answers beyond the first 4 are not exported.
+pub async fn export_xlsx(
+    State(state): State<AppState>,
+    AuthUser(user_id, is_admin): AuthUser,
+    axum::extract::Path(quiz_id): axum::extract::Path<uuid::Uuid>,
+) -> Result<Response, StatusCode> {
+    let quiz: Quiz = if is_admin {
+        sqlx::query_as("SELECT * FROM quizzes WHERE id = $1")
+            .bind(quiz_id)
+            .fetch_optional(&state.db)
+            .await
+    } else {
+        sqlx::query_as("SELECT * FROM quizzes WHERE id = $1 AND creator_id = $2")
+            .bind(quiz_id)
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let questions: Vec<Question> =
+        sqlx::query_as("SELECT * FROM questions WHERE quiz_id = $1 ORDER BY position")
+            .bind(quiz_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let question_ids: Vec<uuid::Uuid> = questions.iter().map(|q| q.id).collect();
+    let all_answers: Vec<Answer> = sqlx::query_as(
+        "SELECT * FROM answers WHERE question_id = ANY($1) ORDER BY question_id, position",
+    )
+    .bind(&question_ids)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut answers_by_question: HashMap<uuid::Uuid, Vec<Answer>> = HashMap::new();
+    for answer in all_answers {
+        answers_by_question
+            .entry(answer.question_id)
+            .or_default()
+            .push(answer);
+    }
+
+    // Build the spreadsheet, mirroring Kahoot's import template: a header row,
+    // then one question per row starting at row 9 (index 8).
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+
+    sheet
+        .write_string(0, 0, "Kahoot question import — fill via create.kahoot.it > Add question > Import. Question rows start at row 9.")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let headers = [
+        "Question - max 120 characters",
+        "Answer 1 - max 75 characters",
+        "Answer 2 - max 75 characters",
+        "Answer 3 - max 75 characters",
+        "Answer 4 - max 75 characters",
+        "Time limit (sec)",
+        "Correct answer(s) - reference the answer number(s), comma separated",
+    ];
+    for (col, label) in headers.iter().enumerate() {
+        sheet
+            .write_string(7, col as u16, *label)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    let mut row: u32 = 8;
+    for question in &questions {
+        let answers = answers_by_question.get(&question.id);
+        let answers = answers.map(|v| v.as_slice()).unwrap_or(&[]);
+
+        sheet
+            .write_string(row, 0, truncate(&question.text, 120))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let mut correct = Vec::new();
+        for (i, answer) in answers.iter().take(4).enumerate() {
+            sheet
+                .write_string(row, (i + 1) as u16, truncate(&answer.text, 75))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if answer.is_correct {
+                correct.push((i + 1).to_string());
+            }
+        }
+
+        sheet
+            .write_number(row, 5, snap_time_limit(question.time_limit_secs) as f64)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        sheet
+            .write_string(row, 6, correct.join(","))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        row += 1;
+    }
+
+    let bytes = workbook
+        .save_to_buffer()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Sanitize the title for the download filename.
+    let safe_title: String = quiz
+        .title
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    let filename = format!("{}.xlsx", if safe_title.is_empty() { "quiz".into() } else { safe_title });
+
+    let headers = [
+        (
+            header::CONTENT_TYPE,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
+        ),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        ),
+    ];
+    Ok((headers, bytes).into_response())
 }

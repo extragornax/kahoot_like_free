@@ -73,6 +73,7 @@ async fn main() {
         .route("/auth/me", get(handlers::auth::me).put(handlers::auth::update_account))
         .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))
         .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))
+        .route("/quizzes/{id}/export.xlsx", get(handlers::quiz::export_xlsx))
         .route("/games/{quiz_id}", post(handlers::game::create))
         .route("/games/{pin}/qr", get(handlers::game::qr_svg))
         .route("/upload", post(handlers::upload::upload)

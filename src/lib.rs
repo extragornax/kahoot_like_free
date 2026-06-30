@@ -43,6 +43,7 @@ pub fn build_app(state: AppState) -> Router {
                 .put(handlers::quiz::update)
                 .delete(handlers::quiz::delete),
         )
+        .route("/quizzes/{id}/export.xlsx", get(handlers::quiz::export_xlsx))
         .route("/games/{quiz_id}", post(handlers::game::create))
         .route("/games/{pin}/qr", get(handlers::game::qr_svg))
         .route(

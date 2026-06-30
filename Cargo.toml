@@ -25,6 +25,7 @@ hex = "0.4"
 base64 = "0.22"
 jsonwebtoken = "9"
 dashmap = "6"
+rust_xlsxwriter = "0.95.0"
 
 # Speed up image processing in debug builds (image crate is ~100x slower unoptimized)
 [profile.dev.package.image]
