@@ -1042,6 +1042,49 @@
             overflow: hidden;
         }
 
+        .streak-picker {
+            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .streak-picker-label {
+            font-size: 0.95rem;
+            font-weight: 700;
+            opacity: 0.75;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .streak-picker-options {
+            display: inline-flex;
+            background: rgba(255,255,255,0.12);
+            border-radius: 999px;
+            padding: 4px;
+        }
+
+        .streak-option {
+            background: transparent;
+            color: rgba(255,255,255,0.75);
+            border: none;
+            padding: 8px 18px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s, transform 0.1s;
+        }
+
+        .streak-option:hover { color: #fff; }
+        .streak-option:active { transform: scale(0.97); }
+
+        .streak-option.active {
+            background: #fff;
+            color: #46178f;
+        }
+
         .lobby-qr img {
             display: block;
             width: 220px;
@@ -1412,6 +1455,14 @@
     <div class="lobby-pin" id="lobby-pin"></div>
     <div class="lobby-players-title"><span id="lobby-player-count">0</span> players joined</div>
     <div class="lobby-players" id="lobby-players"></div>
+    <div class="streak-picker" id="streak-picker">
+        <div class="streak-picker-label">Streak bonus</div>
+        <div class="streak-picker-options" role="radiogroup" aria-label="Streak bonus mode">
+            <button type="button" class="streak-option" data-mode="off">Off</button>
+            <button type="button" class="streak-option active" data-mode="animations">Animations only</button>
+            <button type="button" class="streak-option" data-mode="multiplier">Multiplier</button>
+        </div>
+    </div>
     <button class="btn btn-green mt-20" id="start-game-btn" disabled>Start Game</button>
 </div>
 
@@ -2411,9 +2462,25 @@
         };
     }
 
+    let streakMode = localStorage.getItem('kahoot_streak_mode') || 'animations';
+
+    function applyStreakMode(mode) {
+        streakMode = mode;
+        localStorage.setItem('kahoot_streak_mode', mode);
+        document.querySelectorAll('#streak-picker .streak-option').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+    }
+
+    applyStreakMode(streakMode);
+
+    document.querySelectorAll('#streak-picker .streak-option').forEach(btn => {
+        btn.addEventListener('click', () => applyStreakMode(btn.dataset.mode));
+    });
+
     document.getElementById('start-game-btn').addEventListener('click', () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'start' }));
+            ws.send(JSON.stringify({ type: 'start', streak_mode: streakMode }));
         }
     });
 

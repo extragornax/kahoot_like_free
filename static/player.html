@@ -248,6 +248,35 @@
             100% { transform: scale(1); opacity: 1; }
         }
 
+        #result-screen .streak-badge {
+            display: none;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 1.05rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #ff8a00, #ff3d00);
+            color: #fff;
+            padding: 0.35rem 0.8rem;
+            border-radius: 999px;
+            margin-bottom: 0.8vh;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            box-shadow: 0 0 0 rgba(255,138,0,0.6);
+            animation: streakPop 0.5s cubic-bezier(0.175,0.885,0.32,1.275), streakGlow 1.6s ease-in-out infinite 0.5s;
+        }
+        #result-screen .streak-badge.visible { display: inline-flex; }
+        #result-screen .streak-badge .streak-flame { font-size: 1.3rem; line-height: 1; }
+        #result-screen .streak-badge .streak-bonus { opacity: 0.9; font-size: 0.85rem; font-weight: 700; margin-left: 0.3rem; }
+
+        @keyframes streakPop {
+            0% { transform: scale(0.4) rotate(-12deg); opacity: 0; }
+            70% { transform: scale(1.15) rotate(2deg); }
+            100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+        @keyframes streakGlow {
+            0%, 100% { box-shadow: 0 0 0 rgba(255,138,0,0); }
+            50% { box-shadow: 0 0 16px rgba(255,138,0,0.7); }
+        }
+
         #result-screen .points-earned { font-size: 1.4rem; font-weight: 800; margin-bottom: 0.8vh; animation: slideUp 0.4s ease 0.2s both; }
         #result-screen .answer-recap {
             width: 90%; max-width: 360px;
@@ -407,6 +436,7 @@
     <!-- 5. Result screen -->
     <div id="result-screen" class="screen">
         <div class="result-icon" id="result-icon"></div>
+        <div class="streak-badge" id="streak-badge"></div>
         <div class="points-earned" id="points-earned"></div>
         <div class="answer-recap" id="answer-recap"></div>
         <div class="speed-stats" id="speed-stats"></div>
@@ -836,6 +866,21 @@
             icon.style.animation = '';
 
             document.getElementById('points-earned').textContent = `+${data.points} points`;
+
+            // Streak badge — show a flame from 2 in a row onward.
+            const streakBadge = document.getElementById('streak-badge');
+            const streak = typeof data.streak === 'number' ? data.streak : 0;
+            const streakMode = data.streak_mode || 'off';
+            if (streak >= 2 && streakMode !== 'off') {
+                const bonus = (data.points || 0) - (data.base_points || 0);
+                streakBadge.innerHTML = `<span class="streak-flame">🔥</span>${streak} in a row${bonus > 0 ? `<span class="streak-bonus">+${bonus} bonus</span>` : ''}`;
+                streakBadge.classList.add('visible');
+                streakBadge.style.animation = 'none';
+                void streakBadge.offsetWidth;
+                streakBadge.style.animation = '';
+            } else {
+                streakBadge.classList.remove('visible');
+            }
 
             // Answer recap — what you picked vs. what was correct
             const recap = document.getElementById('answer-recap');

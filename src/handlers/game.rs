@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::AuthUser;
-use crate::game::{self, AnswerChoice, GamePhase, GameSession, Player, PlayerAnswer, QuestionData, QuizData};
+use crate::game::{self, AnswerChoice, GamePhase, GameSession, Player, PlayerAnswer, QuestionData, QuizData, StreakMode};
 use crate::models::{Answer, Question};
 
 /// Seconds players have to vote on open answers.
@@ -210,6 +210,9 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
             "start" => {
                 if let Some(mut session) = state.games.get_mut(&pin)
                     && session.phase == GamePhase::Lobby {
+                        if let Some(mode) = parsed["streak_mode"].as_str() {
+                            session.streak_mode = StreakMode::parse(mode);
+                        }
                         start_question(&mut session, &state, &pin);
                     }
             }
@@ -283,9 +286,9 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
         let started = session.phase != GamePhase::Lobby;
 
         // Mid-game: only a previously-disconnected player (matched by nickname)
-        // may rejoin, resuming with their score and original avatar.
+        // may rejoin, resuming with their score, original avatar, and streak.
         // Fresh joins are rejected.
-        let (score, avatar) = if started {
+        let (score, avatar, streak) = if started {
             match session.disconnected.remove(&nickname) {
                 Some(state) => state,
                 None => {
@@ -297,7 +300,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                 }
             }
         } else {
-            (0, game::pick_avatar())
+            (0, game::pick_avatar(), 0)
         };
 
         session.players.insert(
@@ -306,6 +309,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                 nickname: nickname.clone(),
                 avatar: avatar.clone(),
                 score,
+                streak,
                 tx,
             },
         );
@@ -464,11 +468,12 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
     send_task.abort();
     if let Some(mut session) = state.games.get_mut(&pin) {
         if let Some(player) = session.players.remove(&player_id) {
-            // Mid-game: keep the score and avatar so the player can reconnect by nickname.
+            // Mid-game: keep score, avatar, and streak so the player can reconnect by nickname.
             if session.phase != GamePhase::Lobby {
-                session
-                    .disconnected
-                    .insert(player.nickname, (player.score, player.avatar));
+                session.disconnected.insert(
+                    player.nickname,
+                    (player.score, player.avatar, player.streak),
+                );
             }
         }
         let player_count = session.players.len();
@@ -590,9 +595,10 @@ fn close_question(session: &mut GameSession) {
     session.phase = GamePhase::Results;
     let q = &session.quiz.questions[session.current_question];
     let time_limit_ms = q.time_limit_secs as u64 * 1000;
+    let streak_mode = session.streak_mode;
 
-    // Score each answer, track timing
-    let mut player_results = HashMap::<String, (bool, i64, u64)>::new();
+    // 1. Compute correctness, base points (time-bonus only), and timing per answerer.
+    let mut player_base = HashMap::<String, (bool, i64, u64)>::new();
     let mut answer_times: Vec<u64> = Vec::new();
 
     for (player_id, answer) in &session.answers {
@@ -602,18 +608,43 @@ fn close_question(session: &mut GameSession) {
             .map(|a| a.is_correct)
             .unwrap_or(false);
 
-        let points = if correct && time_limit_ms > 0 {
+        let base_points = if correct && time_limit_ms > 0 {
             let time_taken = answer.time_ms.min(time_limit_ms);
             (1000 - (500 * time_taken / time_limit_ms)) as i64
         } else {
             0
         };
 
-        if let Some(player) = session.players.get_mut(player_id) {
-            player.score += points;
-        }
         answer_times.push(answer.time_ms);
-        player_results.insert(player_id.clone(), (correct, points, answer.time_ms));
+        player_base.insert(player_id.clone(), (correct, base_points, answer.time_ms));
+    }
+
+    // 2. Walk every player (including those who didn't answer) to update streaks
+    //    and apply the streak multiplier when active. The final tuple per player
+    //    is (correct, base_points, awarded_points, streak_after, time_ms).
+    let mut player_results = HashMap::<String, (bool, i64, i64, u32, u64)>::new();
+    for (player_id, player) in &mut session.players {
+        let (correct, base_points, time_ms) =
+            player_base.get(player_id).copied().unwrap_or((false, 0, 0));
+
+        if correct {
+            player.streak += 1;
+        } else {
+            player.streak = 0;
+        }
+
+        let awarded = if streak_mode == StreakMode::Multiplier && correct {
+            let m = game::streak_multiplier(player.streak);
+            ((base_points as f64) * m).round() as i64
+        } else {
+            base_points
+        };
+
+        player.score += awarded;
+        player_results.insert(
+            player_id.clone(),
+            (correct, base_points, awarded, player.streak, time_ms),
+        );
     }
 
     // Speed stats
@@ -675,15 +706,17 @@ fn close_question(session: &mut GameSession) {
 
     // Individual results to each player — include timing stats and the picked answer text.
     for (player_id, player) in &session.players {
-        let (correct, points, time_ms) =
-            player_results.get(player_id).copied().unwrap_or((false, 0, 0));
+        let (correct, base_points, awarded, streak, time_ms) = player_results
+            .get(player_id)
+            .copied()
+            .unwrap_or((false, 0, 0, 0, 0));
         let rank = leaderboard
             .iter()
             .position(|e| e.nickname == player.nickname)
             .unwrap_or(0)
             + 1;
         let speed_rank = answer_times.iter().filter(|&&t| t < time_ms).count() + 1;
-        let answered = player_results.contains_key(player_id);
+        let answered = player_base.contains_key(player_id);
         let your_answer = session
             .answers
             .get(player_id)
@@ -694,7 +727,10 @@ fn close_question(session: &mut GameSession) {
             json!({
                 "type": "result",
                 "correct": correct,
-                "points": points,
+                "points": awarded,
+                "base_points": base_points,
+                "streak": streak,
+                "streak_mode": streak_mode.as_str(),
                 "score": player.score,
                 "rank": rank,
                 "total_players": session.players.len(),

@@ -61,7 +61,51 @@ pub struct Player {
     pub nickname: String,
     pub avatar: String,
     pub score: i64,
+    /// Current run of consecutive correct multi-choice answers. Resets on a
+    /// wrong/missed multi-choice answer; other question kinds leave it alone.
+    pub streak: u32,
     pub tx: mpsc::UnboundedSender<String>,
+}
+
+/// How streaks of consecutive correct answers affect the game.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum StreakMode {
+    /// No streak tracking at all.
+    Off,
+    /// Track the streak and surface it to the player as a flame badge,
+    /// but don't change the scoring.
+    AnimationsOnly,
+    /// Track the streak and multiply earned points by `streak_multiplier`.
+    Multiplier,
+}
+
+impl StreakMode {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "multiplier" => StreakMode::Multiplier,
+            "animations" | "animations_only" | "animation" => StreakMode::AnimationsOnly,
+            _ => StreakMode::Off,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StreakMode::Off => "off",
+            StreakMode::AnimationsOnly => "animations",
+            StreakMode::Multiplier => "multiplier",
+        }
+    }
+}
+
+/// Points multiplier earned at a given streak length.
+/// streak ≤ 1 → 1.0x (no bonus on the first correct of a run),
+/// then +0.25x per additional correct, capped at 2.0x for streak ≥ 5.
+pub fn streak_multiplier(streak: u32) -> f64 {
+    if streak <= 1 {
+        return 1.0;
+    }
+    let levels = (streak - 1).min(4);
+    1.0 + 0.25 * levels as f64
 }
 
 pub struct PlayerAnswer {
@@ -98,9 +142,11 @@ pub struct GameSession {
     pub vote_options: Vec<(String, String)>,
     /// Votes cast: voter_player_id -> vote_options index.
     pub votes: HashMap<String, usize>,
-    /// Score and avatar of players who dropped mid-game, kept by nickname so they
-    /// can reconnect and resume both with their score and original avatar.
-    pub disconnected: HashMap<String, (i64, String)>,
+    /// Score, avatar, and streak of players who dropped mid-game, kept by
+    /// nickname so a reconnect can restore all three.
+    pub disconnected: HashMap<String, (i64, String, u32)>,
+    /// How streaks are tracked for this game (chosen by the host in the lobby).
+    pub streak_mode: StreakMode,
 }
 
 impl GameSession {
@@ -118,6 +164,7 @@ impl GameSession {
             vote_options: Vec::new(),
             votes: HashMap::new(),
             disconnected: HashMap::new(),
+            streak_mode: StreakMode::Off,
         }
     }
 
