@@ -328,7 +328,7 @@
             color: #fff;
         }
 
-        .move-up-btn, .move-down-btn {
+        .move-up-btn, .move-down-btn, .add-below-btn {
             background: rgba(255, 255, 255, 0.15);
             color: #fff;
             border: none;
@@ -340,7 +340,7 @@
             line-height: 1;
         }
 
-        .move-up-btn:hover, .move-down-btn:hover {
+        .move-up-btn:hover, .move-down-btn:hover, .add-below-btn:hover {
             background: rgba(255, 255, 255, 0.3);
         }
 
@@ -1819,7 +1819,7 @@
 
     document.getElementById('add-question-btn').addEventListener('click', () => addQuestionBlock());
 
-    function addQuestionBlock(prefill) {
+    function addQuestionBlock(prefill, afterBlock) {
         const container = document.getElementById('questions-container');
         const index = container.children.length;
         const qType = (prefill && prefill.type) || 'mc4';
@@ -1832,6 +1832,7 @@
                 <div class="question-header-actions">
                     <button type="button" class="move-up-btn" title="Move up">↑</button>
                     <button type="button" class="move-down-btn" title="Move down">↓</button>
+                    <button type="button" class="add-below-btn" title="Add a question below this one">+ Below</button>
                     <button class="remove-question-btn">Remove</button>
                 </div>
             </div>
@@ -1932,6 +1933,9 @@
             const next = block.nextElementSibling;
             if (next) { container.insertBefore(next, block); renumberQuestions(); }
         });
+        block.querySelector('.add-below-btn').addEventListener('click', () => {
+            addQuestionBlock(null, block);
+        });
 
         // Prefill data
         if (prefill) {
@@ -1946,7 +1950,12 @@
         }
 
         applyType();
-        container.appendChild(block);
+        if (afterBlock && afterBlock.parentNode === container) {
+            container.insertBefore(block, afterBlock.nextElementSibling);
+            renumberQuestions();
+        } else {
+            container.appendChild(block);
+        }
     }
 
     function renumberQuestions() {
