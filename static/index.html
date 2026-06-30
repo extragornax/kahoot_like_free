@@ -1336,6 +1336,7 @@
     <button id="music-toggle">&#9654;</button>
     <input type="range" id="music-volume" min="0" max="100" value="50">
 </div>
+<button id="sfx-toggle" title="Toggle sound effects" style="position:fixed; bottom:16px; left:16px; z-index:50; background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:20px; padding:8px 14px; font-size:1.1rem; cursor:pointer;">&#128266;</button>
 <audio id="game-audio" loop></audio>
 
 <script>
@@ -2109,27 +2110,32 @@
                 break;
             case 'player_joined':
                 addPlayer(data.nickname, data.player_count);
+                sfx.play('pop');
                 break;
             case 'player_left':
                 removePlayer(data.nickname, data.player_count);
                 break;
             case 'question':
                 showQuestion(data);
+                sfx.play('go');
                 break;
             case 'slide':
                 showSlide(data);
                 break;
             case 'open_question':
                 showOpenQuestion(data);
+                sfx.play('go');
                 break;
             case 'voting':
                 showVoting(data);
+                sfx.play('go');
                 break;
             case 'answer_count':
                 updateAnswerCount(data.count, data.total);
                 break;
             case 'results':
                 showResults(data);
+                sfx.play('reveal');
                 break;
             case 'finished':
                 showFinal(data);
@@ -2418,6 +2424,9 @@
                     if (rank === 0) {
                         places[rank].classList.add('winner-bounce');
                         launchConfetti();
+                        sfx.play('fanfare');
+                    } else {
+                        sfx.play('pop');
                     }
                     step++;
                     setTimeout(revealNext, rank === 0 ? 2000 : 1500);
@@ -2448,7 +2457,8 @@
         revealBtn.style.display = '';
         revealBtn.onclick = () => {
             revealBtn.style.display = 'none';
-            setTimeout(revealNext, 400);
+            sfx.play('drumroll');
+            setTimeout(revealNext, 1200);
         };
     }
 
@@ -2524,6 +2534,114 @@
 
     musicVolume.addEventListener('input', () => {
         gameAudio.volume = musicVolume.value / 100;
+    });
+
+    // --- Sound Effects (synthesized via Web Audio API) ---
+    const sfx = (() => {
+        let ctx = null;
+        let muted = localStorage.getItem('kahoot_sfx_muted') === '1';
+
+        function ensureCtx() {
+            if (!ctx) {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return null;
+                ctx = new AC();
+            }
+            if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+            return ctx;
+        }
+
+        function tone({ freq, type = 'sine', duration = 0.15, delay = 0, gain = 0.15, freqEnd = null }) {
+            const c = ensureCtx();
+            if (!c) return;
+            const osc = c.createOscillator();
+            const g = c.createGain();
+            const start = c.currentTime + delay;
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, start);
+            if (freqEnd !== null) osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), start + duration);
+            g.gain.setValueAtTime(0.0001, start);
+            g.gain.linearRampToValueAtTime(gain, start + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+            osc.connect(g).connect(c.destination);
+            osc.start(start);
+            osc.stop(start + duration + 0.05);
+        }
+
+        function noise({ duration = 0.3, delay = 0, gain = 0.1, filterFreq = 1000 }) {
+            const c = ensureCtx();
+            if (!c) return;
+            const buf = c.createBuffer(1, Math.floor(c.sampleRate * duration), c.sampleRate);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+            const src = c.createBufferSource();
+            src.buffer = buf;
+            const g = c.createGain();
+            const filter = c.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = filterFreq;
+            const start = c.currentTime + delay;
+            g.gain.setValueAtTime(gain, start);
+            g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+            src.connect(filter).connect(g).connect(c.destination);
+            src.start(start);
+            src.stop(start + duration + 0.05);
+        }
+
+        const effects = {
+            pop: () => tone({ freq: 660, type: 'sine', duration: 0.09, gain: 0.12, freqEnd: 1100 }),
+            go: () => {
+                tone({ freq: 523.25, duration: 0.1, gain: 0.1 });
+                tone({ freq: 783.99, duration: 0.16, gain: 0.1, delay: 0.09 });
+            },
+            tap: () => tone({ freq: 600, type: 'triangle', duration: 0.04, gain: 0.08 }),
+            correct: () => {
+                tone({ freq: 659.25, type: 'triangle', duration: 0.12, gain: 0.12 });
+                tone({ freq: 783.99, type: 'triangle', duration: 0.12, gain: 0.12, delay: 0.1 });
+                tone({ freq: 1046.5, type: 'triangle', duration: 0.22, gain: 0.12, delay: 0.2 });
+            },
+            wrong: () => {
+                tone({ freq: 329.63, type: 'sawtooth', duration: 0.18, gain: 0.08 });
+                tone({ freq: 196, type: 'sawtooth', duration: 0.28, gain: 0.08, delay: 0.14 });
+            },
+            reveal: () => {
+                tone({ freq: 523.25, type: 'sine', duration: 0.3, gain: 0.1 });
+                tone({ freq: 783.99, type: 'sine', duration: 0.4, gain: 0.1, delay: 0.15 });
+            },
+            drumroll: () => {
+                for (let i = 0; i < 18; i++) {
+                    noise({ duration: 0.05, delay: i * 0.06, gain: 0.07, filterFreq: 380 });
+                }
+            },
+            fanfare: () => {
+                const notes = [523.25, 659.25, 783.99, 1046.5];
+                notes.forEach((f, i) => tone({ freq: f, type: 'triangle', duration: 0.55, gain: 0.13, delay: i * 0.11 }));
+            },
+        };
+
+        function play(name) {
+            if (muted) return;
+            try { effects[name] && effects[name](); } catch (e) {}
+        }
+
+        function setMuted(v) {
+            muted = !!v;
+            localStorage.setItem('kahoot_sfx_muted', muted ? '1' : '0');
+        }
+
+        return { play, setMuted, isMuted: () => muted };
+    })();
+
+    const sfxToggle = document.getElementById('sfx-toggle');
+    function refreshSfxToggle() {
+        sfxToggle.innerHTML = sfx.isMuted() ? '&#128263;' : '&#128266;';
+        sfxToggle.style.opacity = sfx.isMuted() ? '0.55' : '1';
+    }
+    refreshSfxToggle();
+    sfxToggle.addEventListener('click', () => {
+        sfx.setMuted(!sfx.isMuted());
+        if (!sfx.isMuted()) sfx.play('pop');
+        refreshSfxToggle();
     });
 
     // --- Admin ---
