@@ -1077,9 +1077,30 @@
             <button class="auth-tab" data-mode="register">Register</button>
         </div>
         <div class="auth-error" id="auth-error"></div>
-        <input type="text" id="auth-username" placeholder="Username" autocomplete="username">
-        <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
-        <button class="auth-submit" id="auth-submit">Login</button>
+        <div class="auth-info" id="auth-info" style="display:none; color:#2d8a4e; margin-bottom:10px;"></div>
+
+        <!-- Login / Register -->
+        <div id="auth-main">
+            <input type="text" id="auth-username" placeholder="Username" autocomplete="username">
+            <input type="email" id="auth-email" placeholder="Email (for password recovery)" autocomplete="email" style="display:none;">
+            <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
+            <button class="auth-submit" id="auth-submit">Login</button>
+            <button type="button" id="forgot-link" style="display:block; margin:12px auto 0; background:none; border:none; color:#4a6cf7; cursor:pointer; font-size:0.9rem; text-decoration:underline;">Forgot password?</button>
+        </div>
+
+        <!-- Forgot password: request reset link -->
+        <div id="forgot-view" style="display:none;">
+            <input type="email" id="forgot-email" placeholder="Your account email" autocomplete="email">
+            <button class="auth-submit" id="forgot-submit">Send reset link</button>
+            <button type="button" id="forgot-back" style="display:block; margin:12px auto 0; background:none; border:none; color:#4a6cf7; cursor:pointer; font-size:0.9rem; text-decoration:underline;">Back to login</button>
+        </div>
+
+        <!-- Reset password: from ?reset=TOKEN link -->
+        <div id="reset-view" style="display:none;">
+            <input type="password" id="reset-password" placeholder="New password" autocomplete="new-password">
+            <button class="auth-submit" id="reset-submit">Set new password</button>
+            <button type="button" id="reset-cancel" style="display:block; margin:12px auto 0; background:none; border:none; color:#4a6cf7; cursor:pointer; font-size:0.9rem; text-decoration:underline;">Cancel</button>
+        </div>
     </div>
 </div>
 
@@ -1273,6 +1294,7 @@
             authTabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             authSubmit.textContent = authMode === 'login' ? 'Login' : 'Register';
+            document.getElementById('auth-email').style.display = authMode === 'register' ? '' : 'none';
             authError.textContent = '';
         });
     });
@@ -1301,6 +1323,7 @@
     authSubmit.addEventListener('click', async () => {
         const username = document.getElementById('auth-username').value.trim();
         const password = document.getElementById('auth-password').value;
+        const email = document.getElementById('auth-email').value.trim();
         authError.textContent = '';
 
         if (!username || !password) {
@@ -1314,9 +1337,11 @@
         try {
             const pow = await solvePoW();
             const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+            const body = { username, password, challenge: pow.challenge, nonce: pow.nonce };
+            if (authMode === 'register' && email) body.email = email;
             const res = await apiFetch(endpoint, {
                 method: 'POST',
-                body: JSON.stringify({ username, password, challenge: pow.challenge, nonce: pow.nonce })
+                body: JSON.stringify(body)
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => null);
@@ -1328,6 +1353,7 @@
             localStorage.setItem('kahoot_token', currentToken);
             document.getElementById('auth-username').value = '';
             document.getElementById('auth-password').value = '';
+            document.getElementById('auth-email').value = '';
             loadDashboard();
         } catch (e) {
             authError.textContent = 'Network error. Please try again.';
@@ -1341,6 +1367,85 @@
     document.getElementById('auth-password').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') authSubmit.click();
     });
+
+    // --- Password recovery ---
+    const authInfo = document.getElementById('auth-info');
+
+    function showAuthView(view) {
+        document.getElementById('auth-main').style.display = view === 'main' ? '' : 'none';
+        document.getElementById('forgot-view').style.display = view === 'forgot' ? '' : 'none';
+        document.getElementById('reset-view').style.display = view === 'reset' ? '' : 'none';
+        authError.textContent = '';
+        authInfo.style.display = 'none';
+    }
+
+    document.getElementById('forgot-link').addEventListener('click', () => showAuthView('forgot'));
+    document.getElementById('forgot-back').addEventListener('click', () => showAuthView('main'));
+
+    const forgotSubmit = document.getElementById('forgot-submit');
+    forgotSubmit.addEventListener('click', async () => {
+        const email = document.getElementById('forgot-email').value.trim();
+        authError.textContent = '';
+        if (!email) { authError.textContent = 'Please enter your email.'; return; }
+        forgotSubmit.disabled = true;
+        forgotSubmit.textContent = 'Verifying...';
+        try {
+            const pow = await solvePoW();
+            await fetch('/api/auth/forgot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, challenge: pow.challenge, nonce: pow.nonce })
+            });
+            // Always show the same message regardless of whether the email exists.
+            authInfo.textContent = 'If an account exists for that email, a reset link has been sent.';
+            authInfo.style.display = 'block';
+        } catch (e) {
+            authError.textContent = 'Network error. Please try again.';
+        } finally {
+            forgotSubmit.disabled = false;
+            forgotSubmit.textContent = 'Send reset link';
+        }
+    });
+
+    const resetSubmit = document.getElementById('reset-submit');
+    document.getElementById('reset-cancel').addEventListener('click', () => {
+        history.replaceState(null, '', location.pathname);
+        showAuthView('main');
+    });
+    resetSubmit.addEventListener('click', async () => {
+        const password = document.getElementById('reset-password').value;
+        const token = new URLSearchParams(location.search).get('reset');
+        authError.textContent = '';
+        if (!password) { authError.textContent = 'Please enter a new password.'; return; }
+        resetSubmit.disabled = true;
+        resetSubmit.textContent = 'Saving...';
+        try {
+            const res = await fetch('/api/auth/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, password })
+            });
+            if (!res.ok) {
+                authError.textContent = 'This reset link is invalid or has expired.';
+                return;
+            }
+            history.replaceState(null, '', location.pathname);
+            document.getElementById('reset-password').value = '';
+            showAuthView('main');
+            authInfo.textContent = 'Password updated. You can now log in.';
+            authInfo.style.display = 'block';
+        } catch (e) {
+            authError.textContent = 'Network error. Please try again.';
+        } finally {
+            resetSubmit.disabled = false;
+            resetSubmit.textContent = 'Set new password';
+        }
+    });
+
+    // If the page was opened from a reset link, show the reset form.
+    if (new URLSearchParams(location.search).get('reset')) {
+        showAuthView('reset');
+    }
 
     // --- Logout ---
     document.getElementById('logout-btn').addEventListener('click', () => {
@@ -2281,7 +2386,8 @@
     });
 
     // --- Init ---
-    if (currentToken) {
+    // A reset link takes priority over an existing session.
+    if (currentToken && !new URLSearchParams(location.search).get('reset')) {
         loadDashboard();
     }
 </script>

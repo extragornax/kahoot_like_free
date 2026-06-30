@@ -68,6 +68,8 @@ async fn main() {
         .route("/auth/challenge", get(handlers::auth::challenge))
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
+        .route("/auth/forgot", post(handlers::auth::forgot_password))
+        .route("/auth/reset", post(handlers::auth::reset_password))
         .route("/auth/me", get(handlers::auth::me))
         .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))
         .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))

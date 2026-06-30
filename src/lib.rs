@@ -30,6 +30,8 @@ pub fn build_app(state: AppState) -> Router {
         .route("/auth/challenge", get(handlers::auth::challenge))
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
+        .route("/auth/forgot", post(handlers::auth::forgot_password))
+        .route("/auth/reset", post(handlers::auth::reset_password))
         .route("/auth/me", get(handlers::auth::me))
         .route(
             "/quizzes",

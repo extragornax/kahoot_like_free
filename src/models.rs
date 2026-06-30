@@ -9,6 +9,7 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub password_hash: String,
+    pub email: Option<String>,
     pub is_admin: bool,
     pub created_at: DateTime<Utc>,
 }
@@ -49,8 +50,22 @@ pub struct Answer {
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
+    pub email: Option<String>,
     pub challenge: String,
     pub nonce: String,
+}
+
+#[derive(Deserialize)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+    pub challenge: String,
+    pub nonce: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub password: String,
 }
 
 #[derive(Deserialize)]
