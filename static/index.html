@@ -1927,11 +1927,19 @@
 
         block.querySelector('.move-up-btn').addEventListener('click', () => {
             const prev = block.previousElementSibling;
-            if (prev) { container.insertBefore(block, prev); renumberQuestions(); }
+            if (prev) {
+                container.insertBefore(block, prev);
+                renumberQuestions();
+                block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         });
         block.querySelector('.move-down-btn').addEventListener('click', () => {
             const next = block.nextElementSibling;
-            if (next) { container.insertBefore(next, block); renumberQuestions(); }
+            if (next) {
+                container.insertBefore(next, block);
+                renumberQuestions();
+                block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         });
         block.querySelector('.add-below-btn').addEventListener('click', () => {
             addQuestionBlock(null, block);
