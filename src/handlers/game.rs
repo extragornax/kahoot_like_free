@@ -276,18 +276,30 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             return;
         };
 
-        if session.phase != GamePhase::Lobby {
-            let msg = json!({"type": "error", "message": "Game already started"}).to_string();
-            drop(session); // drop guard before await
-            let _ = ws_sender.send(Message::Text(msg.into())).await;
-            return;
-        }
+        let started = session.phase != GamePhase::Lobby;
+
+        // Mid-game: only a previously-disconnected player (matched by nickname)
+        // may rejoin, resuming with their score. Fresh joins are rejected.
+        let score = if started {
+            match session.disconnected.remove(&nickname) {
+                Some(score) => score,
+                None => {
+                    let msg =
+                        json!({"type": "error", "message": "Game already started"}).to_string();
+                    drop(session); // drop guard before await
+                    let _ = ws_sender.send(Message::Text(msg.into())).await;
+                    return;
+                }
+            }
+        } else {
+            0
+        };
 
         session.players.insert(
             player_id.clone(),
             Player {
                 nickname: nickname.clone(),
-                score: 0,
+                score,
                 tx,
             },
         );
@@ -302,13 +314,18 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             .to_string(),
         );
 
-        let bg = session.quiz.background_url.clone();
-        json!({
-            "type": "joined",
-            "message": "Waiting for host to start the game...",
-            "background_url": bg,
-        })
-        .to_string()
+        if started {
+            // Reconnecting mid-game: sync the player to the current phase.
+            player_state_msg(&session, &player_id)
+        } else {
+            let bg = session.quiz.background_url.clone();
+            json!({
+                "type": "joined",
+                "message": "Waiting for host to start the game...",
+                "background_url": bg,
+            })
+            .to_string()
+        }
         // guard dropped here
     };
     let _ = ws_sender.send(Message::Text(join_msg.into())).await;
@@ -428,7 +445,12 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
     // Player disconnected
     send_task.abort();
     if let Some(mut session) = state.games.get_mut(&pin) {
-        session.players.remove(&player_id);
+        if let Some(player) = session.players.remove(&player_id) {
+            // Mid-game: keep the score so the player can reconnect by nickname.
+            if session.phase != GamePhase::Lobby {
+                session.disconnected.insert(player.nickname, player.score);
+            }
+        }
         let player_count = session.players.len();
         session.send_to_host(
             &json!({
@@ -829,6 +851,80 @@ fn finalize_open(session: &mut GameSession) {
             })
             .to_string(),
         );
+    }
+}
+
+/// Build the message that re-syncs a reconnecting player to the current phase.
+fn player_state_msg(session: &GameSession, player_id: &str) -> String {
+    let idx = session.current_question;
+    let total = session.quiz.questions.len();
+    match session.phase {
+        GamePhase::Question => {
+            let q = &session.quiz.questions[idx];
+            json!({
+                "type": "question",
+                "index": idx,
+                "total": total,
+                "text": q.text,
+                "image_url": q.image_url,
+                "answers": q.answers.iter().map(|a| a.text.clone()).collect::<Vec<_>>(),
+                "time_limit": q.time_limit_secs,
+            })
+            .to_string()
+        }
+        GamePhase::Slide => {
+            let q = &session.quiz.questions[idx];
+            json!({
+                "type": "slide",
+                "index": idx,
+                "total": total,
+                "text": q.text,
+                "image_url": q.image_url,
+                "is_last": idx + 1 >= total,
+            })
+            .to_string()
+        }
+        GamePhase::OpenAnswer => {
+            let q = &session.quiz.questions[idx];
+            json!({
+                "type": "open_question",
+                "index": idx,
+                "total": total,
+                "text": q.text,
+                "image_url": q.image_url,
+                "time_limit": q.time_limit_secs,
+            })
+            .to_string()
+        }
+        GamePhase::Voting => {
+            let texts: Vec<String> = session.vote_options.iter().map(|(_, t)| t.clone()).collect();
+            let own = session.vote_options.iter().position(|(aid, _)| aid == player_id);
+            json!({ "type": "voting", "options": texts, "own_index": own }).to_string()
+        }
+        GamePhase::Finished => {
+            let leaderboard = session.leaderboard();
+            let (rank, score) = session
+                .players
+                .get(player_id)
+                .map(|p| {
+                    let r = leaderboard
+                        .iter()
+                        .position(|e| e.nickname == p.nickname)
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                    (r, p.score)
+                })
+                .unwrap_or((0, 0));
+            json!({ "type": "finished", "rank": rank, "score": score, "leaderboard": leaderboard })
+                .to_string()
+        }
+        // Lobby or Results: show the waiting screen until the next event.
+        _ => json!({
+            "type": "joined",
+            "message": "Waiting for the next question…",
+            "background_url": session.quiz.background_url,
+        })
+        .to_string(),
     }
 }
 

@@ -80,6 +80,9 @@ pub struct GameSession {
     pub vote_options: Vec<(String, String)>,
     /// Votes cast: voter_player_id -> vote_options index.
     pub votes: HashMap<String, usize>,
+    /// Scores of players who dropped mid-game, kept by nickname so they can
+    /// reconnect and resume with their score.
+    pub disconnected: HashMap<String, i64>,
 }
 
 impl GameSession {
@@ -96,6 +99,7 @@ impl GameSession {
             open_answers: HashMap::new(),
             vote_options: Vec::new(),
             votes: HashMap::new(),
+            disconnected: HashMap::new(),
         }
     }
 

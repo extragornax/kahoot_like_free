@@ -413,6 +413,8 @@
         <button class="play-again-btn" id="rejoin-btn">Rejoin</button>
     </div>
 
+    <div id="reconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;background:#e21b3c;color:#fff;text-align:center;padding:8px;z-index:2000;font-weight:600;">Reconnecting…</div>
+
     <div id="game-background" style="position:fixed;top:0;left:0;right:0;bottom:0;background-size:cover;background-position:center;opacity:0.25;z-index:-1;pointer-events:none;display:none;"></div>
 
     <script>
@@ -420,6 +422,17 @@
         let ws = null;
         let nickname = '';
         let currentPin = '';
+        let reconnectTries = 0;
+        let reconnectTimer = null;
+        const MAX_RECONNECT = 8;
+        const SESSION_KEY = 'kahoot_player_session';
+
+        function saveSession() {
+            try { localStorage.setItem(SESSION_KEY, JSON.stringify({ pin: currentPin, nickname })); } catch (e) {}
+        }
+        function clearSession() {
+            try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+        }
 
         // ── Helpers ──
         const screens = document.querySelectorAll('.screen');
@@ -468,34 +481,52 @@
 
             nickname = nick;
             currentPin = pin;
+            reconnectTries = 0;
             joinBtn.disabled = true;
             joinBtn.textContent = 'Connecting...';
+            saveSession();
+            openSocket();
+        }
 
+        function openSocket() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws/play/${pin}`);
+            ws = new WebSocket(`${protocol}//${location.host}/ws/play/${currentPin}`);
 
             ws.onopen = function () {
                 ws.send(JSON.stringify({ type: 'join', nickname: nickname }));
             };
 
             ws.onmessage = function (event) {
-                const data = JSON.parse(event.data);
-                handleMessage(data);
+                // Any message means we're connected — clear reconnect state.
+                reconnectTries = 0;
+                document.getElementById('reconnect-banner').style.display = 'none';
+                handleMessage(JSON.parse(event.data));
             };
 
             ws.onclose = function () {
-                // Only show error if we're not already on final or error screen
                 const finalActive = document.getElementById('final-screen').classList.contains('active');
                 const errorActive = document.getElementById('error-screen').classList.contains('active');
-                if (!finalActive && !errorActive) {
-                    showError('Disconnected', 'Connection to the server was lost.');
+                const onJoinScreen = document.getElementById('join-screen').classList.contains('active');
+                if (finalActive || errorActive || onJoinScreen) return;
+
+                // Lost connection mid-game — try to rejoin (server restores score).
+                if (reconnectTries < MAX_RECONNECT) {
+                    reconnectTries++;
+                    const banner = document.getElementById('reconnect-banner');
+                    banner.textContent = `Reconnecting… (${reconnectTries}/${MAX_RECONNECT})`;
+                    banner.style.display = 'block';
+                    reconnectTimer = setTimeout(openSocket, 1500);
+                } else {
+                    showError('Disconnected', 'Could not reconnect to the game.');
                 }
             };
 
             ws.onerror = function () {
-                joinBtn.disabled = false;
-                joinBtn.textContent = 'Join!';
-                joinError.textContent = 'Could not connect to server';
+                if (document.getElementById('join-screen').classList.contains('active')) {
+                    joinBtn.disabled = false;
+                    joinBtn.textContent = 'Join!';
+                    joinError.textContent = 'Could not connect to server';
+                }
             };
         }
 
@@ -540,14 +571,17 @@
                     break;
 
                 case 'finished':
+                    clearSession();
                     showFinal(data);
                     break;
 
                 case 'game_over':
+                    clearSession();
                     showError('Game Over', data.reason || 'The game has ended.');
                     break;
 
                 case 'error':
+                    clearSession();
                     joinBtn.disabled = false;
                     joinBtn.textContent = 'Join!';
                     // If still on join screen, show inline error
@@ -804,6 +838,10 @@
         document.getElementById('rejoin-btn').addEventListener('click', resetToJoin);
 
         function resetToJoin() {
+            clearSession();
+            reconnectTries = 0;
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+            document.getElementById('reconnect-banner').style.display = 'none';
             if (ws) {
                 ws.onclose = null;
                 ws.close();
@@ -818,6 +856,17 @@
             nicknameInput.value = '';
             showScreen('join-screen');
         }
+
+        // Auto-reconnect after a page reload if a game session was stored.
+        (function restoreSession() {
+            let saved = null;
+            try { saved = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (e) {}
+            if (saved && saved.pin && saved.nickname) {
+                pinInput.value = saved.pin;
+                nicknameInput.value = saved.nickname;
+                connect();
+            }
+        })();
     </script>
     <img src="https://tally.extragornax.fr/t/kahoot" alt="" width="1" height="1" style="position:absolute;opacity:0" referrerpolicy="no-referrer-when-downgrade" />
 </body>
