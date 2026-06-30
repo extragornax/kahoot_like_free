@@ -1707,10 +1707,32 @@
     let currentTotalPlayers = 0;
 
     // --- Helpers ---
+    // Screens that are sub-menus of the Dashboard. Pressing browser back from
+    // any of these returns to the Dashboard instead of exiting the app.
+    const DEEP_MENU_SCREENS = new Set([
+        'create-screen', 'preview-screen', 'admin-screen'
+    ]);
+    let _showingFromPopstate = false;
+
     function showScreen(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(id).classList.add('active');
+        // Push a history entry when navigating *into* a deep menu screen so
+        // the next browser back lands on the Dashboard via popstate.
+        if (DEEP_MENU_SCREENS.has(id) && !_showingFromPopstate
+            && history.state?.deepScreen !== id) {
+            history.pushState({ deepScreen: id }, '');
+        }
     }
+
+    window.addEventListener('popstate', () => {
+        const active = document.querySelector('.screen.active')?.id;
+        if (DEEP_MENU_SCREENS.has(active)) {
+            _showingFromPopstate = true;
+            showScreen('dashboard-screen');
+            _showingFromPopstate = false;
+        }
+    });
 
     function toast(msg) {
         const el = document.createElement('div');
@@ -2165,7 +2187,9 @@
     });
     document.getElementById('preview-exit-btn').addEventListener('click', () => {
         previewQuestions = [];
-        loadDashboard();
+        // Goes through popstate so the pushed history entry is consumed.
+        if (history.state?.deepScreen === 'preview-screen') history.back();
+        else loadDashboard();
     });
 
     // --- Create / Edit Quiz ---
@@ -2301,7 +2325,8 @@
 
     document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
         editingQuizId = null;
-        loadDashboard();
+        if (history.state?.deepScreen === 'create-screen') history.back();
+        else loadDashboard();
     });
 
     document.getElementById('add-question-btn').addEventListener('click', () => addQuestionBlock());
@@ -3307,7 +3332,10 @@
     }
 
     document.getElementById('admin-btn').addEventListener('click', loadAdminScreen);
-    document.getElementById('admin-back-btn').addEventListener('click', loadDashboard);
+    document.getElementById('admin-back-btn').addEventListener('click', () => {
+        if (history.state?.deepScreen === 'admin-screen') history.back();
+        else loadDashboard();
+    });
 
     async function loadAdminScreen() {
         showScreen('admin-screen');
