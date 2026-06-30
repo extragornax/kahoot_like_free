@@ -1202,6 +1202,14 @@
     <div class="answers-grid" id="answers-grid"></div>
 </div>
 
+<!-- Screen 5b: Slide / Section (host) -->
+<div id="slide-screen" class="screen">
+    <div class="question-number" id="slide-number"></div>
+    <div class="question-text" id="slide-text"></div>
+    <img class="question-image" id="slide-image" style="display:none">
+    <button class="btn btn-white mt-20" id="slide-next-btn">Next</button>
+</div>
+
 <!-- Screen 6: Results -->
 <div id="results-screen" class="screen">
     <div class="results-title">Results</div>
@@ -1723,7 +1731,7 @@
 
             (quiz.questions || []).forEach(q => {
                 const n = q.answers.length;
-                const type = n <= 2 ? 'tf' : n <= 4 ? 'mc4' : 'mc6';
+                const type = n === 0 ? 'slide' : n <= 2 ? 'tf' : n <= 4 ? 'mc4' : 'mc6';
                 addQuestionBlock({
                     text: q.text,
                     time_limit_secs: q.time_limit_secs,
@@ -1764,6 +1772,7 @@
                     <option value="tf"${qType === 'tf' ? ' selected' : ''}>True / False</option>
                     <option value="mc4"${qType === 'mc4' ? ' selected' : ''}>Multiple Choice (4)</option>
                     <option value="mc6"${qType === 'mc6' ? ' selected' : ''}>Multiple Choice (6)</option>
+                    <option value="slide"${qType === 'slide' ? ' selected' : ''}>Section / Slide (no answers)</option>
                 </select>
             </div>
             <div class="form-group">
@@ -1796,6 +1805,11 @@
 
         function applyType() {
             const v = typeSelect.value;
+            const isSlide = v === 'slide';
+            block.querySelector('.answers-list').style.display = isSlide ? 'none' : '';
+            block.querySelector('.time-limit-row').style.display = isSlide ? 'none' : '';
+            block.querySelector('.q-text').placeholder = isSlide ? 'Section title...' : 'Question text...';
+            if (isSlide) return;
             mc4Rows.forEach(r => r.style.display = (v === 'tf') ? 'none' : 'flex');
             mc6Rows.forEach(r => r.style.display = (v === 'mc6') ? 'flex' : 'none');
             if (v === 'tf') {
@@ -1873,6 +1887,13 @@
             if (!text) { toast('All questions must have text.'); return; }
 
             const qTypeVal = block.querySelector('.q-type').value;
+
+            // Section/slide: no answers, no scoring.
+            if (qTypeVal === 'slide') {
+                questions.push({ text, time_limit_secs: 20, image_url: block._imageUrl || null, answers: [] });
+                continue;
+            }
+
             const answerCount = qTypeVal === 'tf' ? 2 : qTypeVal === 'mc6' ? 6 : 4;
             const answerTexts = block.querySelectorAll('.answers-list .a-text');
             const answerCorrects = block.querySelectorAll('.answers-list .a-correct');
@@ -1962,7 +1983,7 @@
         ws.onclose = () => {
             // Only show message if we're still on a game screen
             const activeScreen = document.querySelector('.screen.active');
-            if (activeScreen && ['lobby-screen', 'question-screen', 'results-screen'].includes(activeScreen.id)) {
+            if (activeScreen && ['lobby-screen', 'question-screen', 'slide-screen', 'results-screen'].includes(activeScreen.id)) {
                 toast('Connection lost.');
             }
         };
@@ -1987,6 +2008,9 @@
                 break;
             case 'question':
                 showQuestion(data);
+                break;
+            case 'slide':
+                showSlide(data);
                 break;
             case 'answer_count':
                 updateAnswerCount(data.count, data.total);
@@ -2087,6 +2111,23 @@
     function updateAnswerCount(count, total) {
         document.getElementById('answer-counter').textContent = count + ' / ' + total + ' answered';
     }
+
+    // --- Slide / Section ---
+    function showSlide(data) {
+        showScreen('slide-screen');
+        document.getElementById('slide-number').textContent = (data.index + 1) + ' of ' + data.total;
+        document.getElementById('slide-text').textContent = data.text;
+        const img = document.getElementById('slide-image');
+        if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
+        else { img.style.display = 'none'; }
+        document.getElementById('slide-next-btn').textContent = data.is_last ? 'Finish' : 'Next';
+    }
+
+    document.getElementById('slide-next-btn').addEventListener('click', () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'next' }));
+        }
+    });
 
     // --- Results ---
     function showResults(data) {

@@ -322,6 +322,16 @@
         <div class="answers-container" id="answers-container"></div>
     </div>
 
+    <!-- 3b. Slide / Section screen -->
+    <div id="slide-screen" class="screen">
+        <div class="question-header">
+            <div class="question-counter" id="slide-counter"></div>
+            <div class="question-text" id="slide-text"></div>
+            <img class="question-image-player" id="slide-image" style="display:none">
+        </div>
+        <div class="waiting-text">👀 Look at the main screen</div>
+    </div>
+
     <!-- 4. Answered screen -->
     <div id="answered-screen" class="screen">
         <div class="checkmark">✔</div>
@@ -462,6 +472,10 @@
                     showQuestion(data);
                     break;
 
+                case 'slide':
+                    showSlide(data);
+                    break;
+
                 case 'answer_accepted':
                     showScreen('answered-screen');
                     break;
@@ -526,6 +540,16 @@
             });
 
             showScreen('question-screen');
+        }
+
+        function showSlide(data) {
+            document.getElementById('slide-counter').textContent =
+                `Section ${data.index + 1} of ${data.total}`;
+            document.getElementById('slide-text').textContent = data.text;
+            const img = document.getElementById('slide-image');
+            if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
+            else { img.style.display = 'none'; }
+            showScreen('slide-screen');
         }
 
         function escapeHtml(text) {

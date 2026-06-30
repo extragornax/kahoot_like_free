@@ -207,7 +207,7 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
             }
             "next" => {
                 if let Some(mut session) = state.games.get_mut(&pin)
-                    && session.phase == GamePhase::Results {
+                    && matches!(session.phase, GamePhase::Results | GamePhase::Slide) {
                         if session.current_question + 1 < session.quiz.questions.len() {
                             session.current_question += 1;
                             start_question(&mut session, &state, &pin);
@@ -396,13 +396,37 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
 // --- Game flow helpers ---
 
 fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
-    session.phase = GamePhase::Question;
     session.answers.clear();
+
+    let idx = session.current_question;
+    let total = session.quiz.questions.len();
+    let is_last = idx + 1 >= total;
+
+    // A question with no answers is a content/section slide: show it, no timer,
+    // no scoring; the host advances manually with "next".
+    if session.quiz.questions[idx].answers.is_empty() {
+        session.phase = GamePhase::Slide;
+        session.question_started_at = None;
+
+        let q = &session.quiz.questions[idx];
+        let msg = json!({
+            "type": "slide",
+            "index": idx,
+            "total": total,
+            "text": q.text,
+            "image_url": q.image_url,
+            "is_last": is_last,
+        })
+        .to_string();
+        session.send_to_host(&msg);
+        session.send_to_all_players(&msg);
+        return;
+    }
+
+    session.phase = GamePhase::Question;
     session.question_started_at = Some(std::time::Instant::now());
 
     let q = &session.quiz.questions[session.current_question];
-    let idx = session.current_question;
-    let total = session.quiz.questions.len();
 
     // Host sees correct answers
     session.send_to_host(

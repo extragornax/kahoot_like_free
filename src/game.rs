@@ -54,6 +54,8 @@ pub struct PlayerAnswer {
 pub enum GamePhase {
     Lobby,
     Question,
+    /// A content/section slide: no answers, no scoring, host advances manually.
+    Slide,
     Results,
     Finished,
 }
