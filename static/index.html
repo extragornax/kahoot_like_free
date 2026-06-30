@@ -304,6 +304,28 @@
             font-weight: 700;
         }
 
+        .question-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .move-up-btn, .move-down-btn {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.95rem;
+            line-height: 1;
+        }
+
+        .move-up-btn:hover, .move-down-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
         .remove-question-btn {
             background: rgba(226, 27, 60, 0.6);
             color: #fff;
@@ -1764,7 +1786,11 @@
         block.innerHTML = `
             <div class="question-header">
                 <h3>Question ${index + 1}</h3>
-                <button class="remove-question-btn">Remove</button>
+                <div class="question-header-actions">
+                    <button type="button" class="move-up-btn" title="Move up">↑</button>
+                    <button type="button" class="move-down-btn" title="Move down">↓</button>
+                    <button class="remove-question-btn">Remove</button>
+                </div>
             </div>
             <div class="question-type-row">
                 <label>Type:</label>
@@ -1850,6 +1876,15 @@
         block.querySelector('.remove-question-btn').addEventListener('click', () => {
             block.remove();
             renumberQuestions();
+        });
+
+        block.querySelector('.move-up-btn').addEventListener('click', () => {
+            const prev = block.previousElementSibling;
+            if (prev) { container.insertBefore(block, prev); renumberQuestions(); }
+        });
+        block.querySelector('.move-down-btn').addEventListener('click', () => {
+            const next = block.nextElementSibling;
+            if (next) { container.insertBefore(next, block); renumberQuestions(); }
         });
 
         // Prefill data
