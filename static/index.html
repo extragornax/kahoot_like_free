@@ -310,6 +310,24 @@
             gap: 6px;
         }
 
+        .vote-options-host {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 700px;
+            margin: 20px auto 0;
+            width: 100%;
+        }
+
+        .vote-option {
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 16px 20px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
         .move-up-btn, .move-down-btn {
             background: rgba(255, 255, 255, 0.15);
             color: #fff;
@@ -1232,6 +1250,29 @@
     <button class="btn btn-white mt-20" id="slide-next-btn">Next</button>
 </div>
 
+<!-- Screen 5c: Open answer collection (host) -->
+<div id="open-question-screen" class="screen">
+    <div class="question-top">
+        <div class="question-number" id="open-question-number"></div>
+        <div class="answer-counter" id="open-answer-counter">0 / 0 answered</div>
+    </div>
+    <div class="timer-bar-container">
+        <div class="timer-bar" id="open-timer-bar"></div>
+    </div>
+    <div class="question-text" id="open-question-text"></div>
+    <img class="question-image" id="open-question-image" style="display:none">
+    <div class="question-number">Players are typing their answers…</div>
+</div>
+
+<!-- Screen 5d: Voting (host) -->
+<div id="voting-screen" class="screen">
+    <div class="question-top">
+        <div class="question-number">Vote for the best answer</div>
+        <div class="answer-counter" id="voting-counter">0 / 0 voted</div>
+    </div>
+    <div class="vote-options-host" id="vote-options-host"></div>
+</div>
+
 <!-- Screen 6: Results -->
 <div id="results-screen" class="screen">
     <div class="results-title">Results</div>
@@ -1753,7 +1794,9 @@
 
             (quiz.questions || []).forEach(q => {
                 const n = q.answers.length;
-                const type = n === 0 ? 'slide' : n <= 2 ? 'tf' : n <= 4 ? 'mc4' : 'mc6';
+                const k = q.kind || (n === 0 ? 'slide' : 'choice');
+                const type = k === 'slide' ? 'slide' : k === 'open' ? 'open'
+                    : n <= 2 ? 'tf' : n <= 4 ? 'mc4' : 'mc6';
                 addQuestionBlock({
                     text: q.text,
                     time_limit_secs: q.time_limit_secs,
@@ -1798,6 +1841,7 @@
                     <option value="tf"${qType === 'tf' ? ' selected' : ''}>True / False</option>
                     <option value="mc4"${qType === 'mc4' ? ' selected' : ''}>Multiple Choice (4)</option>
                     <option value="mc6"${qType === 'mc6' ? ' selected' : ''}>Multiple Choice (6)</option>
+                    <option value="open"${qType === 'open' ? ' selected' : ''}>Open answer (players type + vote)</option>
                     <option value="slide"${qType === 'slide' ? ' selected' : ''}>Section / Slide (no answers)</option>
                 </select>
             </div>
@@ -1832,10 +1876,12 @@
         function applyType() {
             const v = typeSelect.value;
             const isSlide = v === 'slide';
-            block.querySelector('.answers-list').style.display = isSlide ? 'none' : '';
+            const isOpen = v === 'open';
+            const noAnswers = isSlide || isOpen;
+            block.querySelector('.answers-list').style.display = noAnswers ? 'none' : '';
             block.querySelector('.time-limit-row').style.display = isSlide ? 'none' : '';
             block.querySelector('.q-text').placeholder = isSlide ? 'Section title...' : 'Question text...';
-            if (isSlide) return;
+            if (noAnswers) return;
             mc4Rows.forEach(r => r.style.display = (v === 'tf') ? 'none' : 'flex');
             mc6Rows.forEach(r => r.style.display = (v === 'mc6') ? 'flex' : 'none');
             if (v === 'tf') {
@@ -1925,7 +1971,14 @@
 
             // Section/slide: no answers, no scoring.
             if (qTypeVal === 'slide') {
-                questions.push({ text, time_limit_secs: 20, image_url: block._imageUrl || null, answers: [] });
+                questions.push({ text, time_limit_secs: 20, image_url: block._imageUrl || null, kind: 'slide', answers: [] });
+                continue;
+            }
+
+            // Open answer: players type, then vote. No predefined answers.
+            if (qTypeVal === 'open') {
+                const timeLimit = parseInt(block.querySelector('.q-time').value) || 20;
+                questions.push({ text, time_limit_secs: timeLimit, image_url: block._imageUrl || null, kind: 'open', answers: [] });
                 continue;
             }
 
@@ -1944,7 +1997,7 @@
             if (!hasCorrect) { toast('Each question needs at least one correct answer.'); return; }
 
             const timeLimit = parseInt(block.querySelector('.q-time').value) || 20;
-            questions.push({ text, time_limit_secs: timeLimit, image_url: block._imageUrl || null, answers });
+            questions.push({ text, time_limit_secs: timeLimit, image_url: block._imageUrl || null, kind: 'choice', answers });
         }
 
         try {
@@ -2018,7 +2071,7 @@
         ws.onclose = () => {
             // Only show message if we're still on a game screen
             const activeScreen = document.querySelector('.screen.active');
-            if (activeScreen && ['lobby-screen', 'question-screen', 'slide-screen', 'results-screen'].includes(activeScreen.id)) {
+            if (activeScreen && ['lobby-screen', 'question-screen', 'slide-screen', 'open-question-screen', 'voting-screen', 'results-screen'].includes(activeScreen.id)) {
                 toast('Connection lost.');
             }
         };
@@ -2046,6 +2099,12 @@
                 break;
             case 'slide':
                 showSlide(data);
+                break;
+            case 'open_question':
+                showOpenQuestion(data);
+                break;
+            case 'voting':
+                showVoting(data);
                 break;
             case 'answer_count':
                 updateAnswerCount(data.count, data.total);
@@ -2144,7 +2203,38 @@
     }
 
     function updateAnswerCount(count, total) {
-        document.getElementById('answer-counter').textContent = count + ' / ' + total + ' answered';
+        document.querySelectorAll('.answer-counter').forEach(el => {
+            el.textContent = count + ' / ' + total + ' responded';
+        });
+    }
+
+    // --- Open answer (host) ---
+    function showOpenQuestion(data) {
+        showScreen('open-question-screen');
+        document.getElementById('open-question-number').textContent = 'Question ' + (data.index + 1) + ' of ' + data.total;
+        document.getElementById('open-question-text').textContent = data.text;
+        document.querySelectorAll('.answer-counter').forEach(el => el.textContent = '0 / ' + currentTotalPlayers + ' responded');
+        const img = document.getElementById('open-question-image');
+        if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
+        else { img.style.display = 'none'; }
+        const bar = document.getElementById('open-timer-bar');
+        bar.style.animation = 'none';
+        void bar.offsetWidth;
+        bar.style.animation = 'timerShrink ' + data.time_limit + 's linear forwards';
+    }
+
+    // --- Voting (host) ---
+    function showVoting(data) {
+        showScreen('voting-screen');
+        document.querySelectorAll('.answer-counter').forEach(el => el.textContent = '0 / ' + currentTotalPlayers + ' responded');
+        const container = document.getElementById('vote-options-host');
+        container.innerHTML = '';
+        (data.options || []).forEach((opt, i) => {
+            const el = document.createElement('div');
+            el.className = 'vote-option';
+            el.textContent = (i + 1) + '. ' + opt;
+            container.appendChild(el);
+        });
     }
 
     // --- Slide / Section ---

@@ -165,6 +165,32 @@
             overflow: hidden;
         }
 
+        .open-input-row {
+            width: 100%;
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.5rem 0.6rem 0.8rem;
+        }
+        .open-input-row input {
+            flex: 1;
+            padding: 0.9rem 1rem;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 8px;
+            outline: none;
+        }
+        .open-input-row button {
+            padding: 0.9rem 1.4rem;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border: none;
+            border-radius: 8px;
+            background: #26890c;
+            color: #fff;
+            cursor: pointer;
+        }
+        .open-input-row button:disabled { opacity: 0.5; }
+
         .answer-btn {
             flex: 1;
             border: none;
@@ -332,6 +358,27 @@
         <div class="waiting-text">👀 Look at the main screen</div>
     </div>
 
+    <!-- 3c. Open answer input screen -->
+    <div id="open-answer-screen" class="screen">
+        <div class="question-header">
+            <div class="question-counter" id="open-counter"></div>
+            <div class="question-text" id="open-text"></div>
+            <img class="question-image-player" id="open-image" style="display:none">
+        </div>
+        <div class="open-input-row">
+            <input type="text" id="open-input" maxlength="200" placeholder="Type your answer...">
+            <button id="open-submit-btn">Submit</button>
+        </div>
+    </div>
+
+    <!-- 3d. Voting screen -->
+    <div id="vote-screen" class="screen">
+        <div class="question-header">
+            <div class="question-counter">Vote for the best answer</div>
+        </div>
+        <div class="answers-container" id="vote-options"></div>
+    </div>
+
     <!-- 4. Answered screen -->
     <div id="answered-screen" class="screen">
         <div class="checkmark">✔</div>
@@ -476,6 +523,14 @@
                     showSlide(data);
                     break;
 
+                case 'open_question':
+                    showOpenQuestion(data);
+                    break;
+
+                case 'voting':
+                    showVoting(data);
+                    break;
+
                 case 'answer_accepted':
                     showScreen('answered-screen');
                     break;
@@ -550,6 +605,62 @@
             if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
             else { img.style.display = 'none'; }
             showScreen('slide-screen');
+        }
+
+        // ── Open answer ──
+        function showOpenQuestion(data) {
+            document.getElementById('open-counter').textContent = `Question ${data.index + 1} of ${data.total}`;
+            document.getElementById('open-text').textContent = data.text;
+            const img = document.getElementById('open-image');
+            if (data.image_url) { img.src = data.image_url; img.style.display = 'block'; }
+            else { img.style.display = 'none'; }
+            const input = document.getElementById('open-input');
+            input.value = '';
+            input.disabled = false;
+            document.getElementById('open-submit-btn').disabled = false;
+            showScreen('open-answer-screen');
+            input.focus();
+        }
+
+        function submitOpen() {
+            const input = document.getElementById('open-input');
+            const text = input.value.trim();
+            if (!text) return;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'open_answer', text }));
+            }
+            input.disabled = true;
+            document.getElementById('open-submit-btn').disabled = true;
+        }
+        document.getElementById('open-submit-btn').addEventListener('click', submitOpen);
+        document.getElementById('open-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitOpen();
+        });
+
+        // ── Voting ──
+        function showVoting(data) {
+            const container = document.getElementById('vote-options');
+            container.innerHTML = '';
+            (data.options || []).forEach((opt, i) => {
+                const btn = document.createElement('button');
+                btn.className = `answer-btn ${colors[i % colors.length]}`;
+                btn.innerHTML = `<span class="answer-text">${escapeHtml(opt)}</span>`;
+                if (i === data.own_index) {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                } else {
+                    btn.addEventListener('click', () => sendVote(i, container));
+                }
+                container.appendChild(btn);
+            });
+            showScreen('vote-screen');
+        }
+
+        function sendVote(i, container) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'vote', index: i }));
+            }
+            container.querySelectorAll('button').forEach(b => b.disabled = true);
         }
 
         function escapeHtml(text) {

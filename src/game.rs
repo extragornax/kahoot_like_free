@@ -31,6 +31,7 @@ pub struct QuestionData {
     pub answers: Vec<AnswerChoice>,
     pub time_limit_secs: i32,
     pub image_url: Option<String>,
+    pub kind: String,
 }
 
 #[derive(Clone)]
@@ -56,6 +57,10 @@ pub enum GamePhase {
     Question,
     /// A content/section slide: no answers, no scoring, host advances manually.
     Slide,
+    /// Open-answer question: players type a free-text answer.
+    OpenAnswer,
+    /// Voting on the open answers collected in the OpenAnswer phase.
+    Voting,
     Results,
     Finished,
 }
@@ -69,6 +74,12 @@ pub struct GameSession {
     pub current_question: usize,
     pub question_started_at: Option<Instant>,
     pub answers: HashMap<String, PlayerAnswer>,
+    /// Open-answer submissions for the current question: player_id -> text.
+    pub open_answers: HashMap<String, String>,
+    /// Voting options built from open answers: (author_player_id, text), index = vote target.
+    pub vote_options: Vec<(String, String)>,
+    /// Votes cast: voter_player_id -> vote_options index.
+    pub votes: HashMap<String, usize>,
 }
 
 impl GameSession {
@@ -82,6 +93,9 @@ impl GameSession {
             current_question: 0,
             question_started_at: None,
             answers: HashMap::new(),
+            open_answers: HashMap::new(),
+            vote_options: Vec::new(),
+            votes: HashMap::new(),
         }
     }
 

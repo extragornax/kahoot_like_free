@@ -114,13 +114,14 @@ pub async fn create(
 
     for (pos, q) in req.questions.iter().enumerate() {
         let question: Question = sqlx::query_as(
-            "INSERT INTO questions (quiz_id, text, time_limit_secs, position, image_url) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "INSERT INTO questions (quiz_id, text, time_limit_secs, position, image_url, kind) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
         )
         .bind(quiz.id)
         .bind(&q.text)
         .bind(q.time_limit_secs.unwrap_or(20))
         .bind(pos as i32)
         .bind(&q.image_url)
+        .bind(q.kind.as_deref().unwrap_or("choice"))
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -209,12 +210,14 @@ pub async fn update(
     // Re-insert questions and answers
     for (pos, q) in req.questions.iter().enumerate() {
         let question: Question = sqlx::query_as(
-            "INSERT INTO questions (quiz_id, text, time_limit_secs, position) VALUES ($1, $2, $3, $4) RETURNING *",
+            "INSERT INTO questions (quiz_id, text, time_limit_secs, position, image_url, kind) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
         )
         .bind(quiz_id)
         .bind(&q.text)
         .bind(q.time_limit_secs.unwrap_or(20))
         .bind(pos as i32)
+        .bind(&q.image_url)
+        .bind(q.kind.as_deref().unwrap_or("choice"))
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

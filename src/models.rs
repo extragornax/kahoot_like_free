@@ -33,6 +33,7 @@ pub struct Question {
     pub time_limit_secs: i32,
     pub position: i32,
     pub image_url: Option<String>,
+    pub kind: String,
 }
 
 #[derive(sqlx::FromRow, Serialize)]
@@ -110,6 +111,8 @@ pub struct CreateQuestionRequest {
     pub text: String,
     pub time_limit_secs: Option<i32>,
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
     pub answers: Vec<CreateAnswerRequest>,
 }
 
