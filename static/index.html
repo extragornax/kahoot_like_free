@@ -695,6 +695,56 @@
         .answer-block.purple { background: #863bba; }
         .answer-block.teal { background: #009d9a; }
 
+        .answer-block {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .answer-live-bar {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 6px;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.25);
+        }
+
+        .answer-live-fill {
+            height: 100%;
+            width: 0%;
+            background: rgba(255, 255, 255, 0.85);
+            transition: width 0.35s ease;
+        }
+
+        .answer-count-badge {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 800;
+            padding: 2px 10px;
+            border-radius: 12px;
+            min-width: 28px;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .answer-count-badge.visible {
+            opacity: 1;
+        }
+
+        .answer-count-badge.bump {
+            animation: badgeBump 0.3s ease;
+        }
+
+        @keyframes badgeBump {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.25); }
+        }
+
         .question-image { max-height: 200px; max-width: 60%; border-radius: 12px; margin-bottom: 20px; align-self: center; object-fit: contain; }
 
         .answer-icon {
@@ -2395,7 +2445,7 @@
                 sfx.play('go');
                 break;
             case 'answer_count':
-                updateAnswerCount(data.count, data.total);
+                updateAnswerCount(data.count, data.total, data.counts);
                 break;
             case 'results':
                 showResults(data);
@@ -2482,9 +2532,12 @@
         data.answers.forEach((ans, i) => {
             const block = document.createElement('div');
             block.className = 'answer-block ' + (colors[i] || 'blue');
+            block.dataset.index = i;
             block.innerHTML = `
                 <div class="answer-icon">${icons[i] || ''}</div>
                 <div class="answer-block-text">${escapeHtml(ans.text)}</div>
+                <div class="answer-count-badge">0</div>
+                <div class="answer-live-bar"><div class="answer-live-fill"></div></div>
             `;
             grid.appendChild(block);
         });
@@ -2495,9 +2548,31 @@
         timerBar.style.animation = 'timerShrink ' + data.time_limit + 's linear forwards';
     }
 
-    function updateAnswerCount(count, total) {
+    function updateAnswerCount(count, total, counts) {
         document.querySelectorAll('.answer-counter').forEach(el => {
             el.textContent = count + ' / ' + total + ' responded';
+        });
+
+        if (!Array.isArray(counts) || !counts.length) return;
+        const max = Math.max(1, ...counts);
+        document.querySelectorAll('#answers-grid .answer-block').forEach(block => {
+            const idx = parseInt(block.dataset.index, 10);
+            if (Number.isNaN(idx)) return;
+            const c = counts[idx] || 0;
+            const badge = block.querySelector('.answer-count-badge');
+            const fill = block.querySelector('.answer-live-fill');
+            if (badge) {
+                const prev = parseInt(badge.textContent, 10) || 0;
+                badge.textContent = c;
+                if (c > 0) badge.classList.add('visible');
+                else badge.classList.remove('visible');
+                if (c > prev) {
+                    badge.classList.remove('bump');
+                    void badge.offsetWidth;
+                    badge.classList.add('bump');
+                }
+            }
+            if (fill) fill.style.width = (c / max * 100) + '%';
         });
     }
 

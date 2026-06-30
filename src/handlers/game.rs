@@ -378,11 +378,21 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
 
                         let count = session.answers.len();
                         let total = session.players.len();
+                        let n_opts = session.quiz.questions[session.current_question]
+                            .answers
+                            .len();
+                        let mut counts = vec![0usize; n_opts];
+                        for a in session.answers.values() {
+                            if a.answer_index < counts.len() {
+                                counts[a.answer_index] += 1;
+                            }
+                        }
                         session.send_to_host(
                             &json!({
                                 "type": "answer_count",
                                 "count": count,
                                 "total": total,
+                                "counts": counts,
                             })
                             .to_string(),
                         );
