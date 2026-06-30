@@ -1284,6 +1284,7 @@
 <!-- Screen 7: Final -->
 <div id="final-screen" class="screen">
     <div class="final-title">Final Results</div>
+    <button class="btn btn-white mt-20" id="reveal-leaderboard-btn" style="display:none">Reveal Leaderboard</button>
     <div class="reveal-label" id="reveal-label"></div>
     <div class="podium" id="podium"></div>
     <div class="final-leaderboard" id="final-leaderboard"></div>
@@ -2442,8 +2443,13 @@
             document.getElementById('back-dashboard-final-btn').style.display = '';
         }
 
-        // Start reveal after a brief pause
-        setTimeout(revealNext, 800);
+        // Gate the reveal behind the host clicking the button.
+        const revealBtn = document.getElementById('reveal-leaderboard-btn');
+        revealBtn.style.display = '';
+        revealBtn.onclick = () => {
+            revealBtn.style.display = 'none';
+            setTimeout(revealNext, 400);
+        };
     }
 
     function launchConfetti() {
