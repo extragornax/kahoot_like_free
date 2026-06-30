@@ -70,7 +70,7 @@ async fn main() {
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/forgot", post(handlers::auth::forgot_password))
         .route("/auth/reset", post(handlers::auth::reset_password))
-        .route("/auth/me", get(handlers::auth::me))
+        .route("/auth/me", get(handlers::auth::me).put(handlers::auth::update_account))
         .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))
         .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))
         .route("/games/{quiz_id}", post(handlers::game::create))

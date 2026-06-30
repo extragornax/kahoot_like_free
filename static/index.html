@@ -1110,6 +1110,7 @@
         <h1>Kahoot Free</h1>
         <div style="display:flex; gap:8px;">
             <button class="btn btn-blue btn-small" id="admin-btn" style="display:none">Admin</button>
+            <button class="btn btn-white btn-small" id="account-btn">Account</button>
             <button class="btn btn-white btn-small" id="logout-btn">Logout</button>
         </div>
     </div>
@@ -1119,6 +1120,20 @@
         </div>
         <div class="quiz-list-title">Your Quizzes</div>
         <div class="quiz-list" id="quiz-list"></div>
+    </div>
+</div>
+
+<!-- Account settings modal -->
+<div id="account-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+    <div class="auth-card" style="max-width:420px; width:90%;">
+        <h1 style="font-size:1.4rem;">Account</h1>
+        <div class="auth-error" id="account-error"></div>
+        <div class="auth-info" id="account-info" style="display:none; color:#2d8a4e; margin-bottom:10px;"></div>
+        <input type="email" id="account-email" placeholder="Email (leave blank to remove)" autocomplete="email">
+        <input type="password" id="account-new-password" placeholder="New password (leave blank to keep)" autocomplete="new-password">
+        <input type="password" id="account-current-password" placeholder="Current password (required)" autocomplete="current-password">
+        <button class="auth-submit" id="account-save">Save changes</button>
+        <button type="button" id="account-cancel" style="display:block; margin:12px auto 0; background:none; border:none; color:#4a6cf7; cursor:pointer; font-size:0.9rem; text-decoration:underline;">Cancel</button>
     </div>
 </div>
 
@@ -1454,6 +1469,60 @@
         if (ws) { ws.close(); ws = null; }
         clearGameMedia();
         showScreen('auth-screen');
+    });
+
+    // --- Account settings ---
+    const accountOverlay = document.getElementById('account-overlay');
+    const accountError = document.getElementById('account-error');
+    const accountInfo = document.getElementById('account-info');
+    const accountSave = document.getElementById('account-save');
+
+    document.getElementById('account-btn').addEventListener('click', async () => {
+        accountError.textContent = '';
+        accountInfo.style.display = 'none';
+        document.getElementById('account-new-password').value = '';
+        document.getElementById('account-current-password').value = '';
+        document.getElementById('account-email').value = '';
+        const res = await apiFetch('/api/auth/me');
+        if (res.ok) {
+            const me = await res.json();
+            document.getElementById('account-email').value = me.email || '';
+        }
+        accountOverlay.style.display = 'flex';
+    });
+
+    document.getElementById('account-cancel').addEventListener('click', () => {
+        accountOverlay.style.display = 'none';
+    });
+
+    accountSave.addEventListener('click', async () => {
+        const email = document.getElementById('account-email').value.trim();
+        const newPassword = document.getElementById('account-new-password').value;
+        const currentPassword = document.getElementById('account-current-password').value;
+        accountError.textContent = '';
+        accountInfo.style.display = 'none';
+        if (!currentPassword) { accountError.textContent = 'Current password is required.'; return; }
+
+        const body = { current_password: currentPassword, email };
+        if (newPassword) body.new_password = newPassword;
+
+        accountSave.disabled = true;
+        accountSave.textContent = 'Saving...';
+        try {
+            const res = await apiFetch('/api/auth/me', { method: 'PUT', body: JSON.stringify(body) });
+            if (res.status === 401) { accountError.textContent = 'Current password is incorrect.'; return; }
+            if (res.status === 409) { accountError.textContent = 'That email is already in use.'; return; }
+            if (!res.ok) { accountError.textContent = 'Could not save changes.'; return; }
+            accountInfo.textContent = 'Account updated.';
+            accountInfo.style.display = 'block';
+            document.getElementById('account-new-password').value = '';
+            document.getElementById('account-current-password').value = '';
+        } catch (e) {
+            accountError.textContent = 'Network error. Please try again.';
+        } finally {
+            accountSave.disabled = false;
+            accountSave.textContent = 'Save changes';
+        }
     });
 
     // --- Dashboard ---

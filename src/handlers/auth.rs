@@ -7,7 +7,8 @@ use sha2::{Digest, Sha256};
 use crate::AppState;
 use crate::auth::create_token;
 use crate::models::{
-    AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest, User,
+    AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
+    UpdateAccountRequest, User,
 };
 use crate::pow;
 
@@ -86,6 +87,7 @@ pub async fn login(
 pub struct MeResponse {
     pub id: uuid::Uuid,
     pub username: String,
+    pub email: Option<String>,
     pub is_admin: bool,
 }
 
@@ -101,8 +103,58 @@ pub async fn me(
     Ok(Json(MeResponse {
         id: user.id,
         username: user.username,
+        email: user.email,
         is_admin: user.is_admin,
     }))
+}
+
+/// Update the authenticated user's email and/or password. Requires the current
+/// password to authorize the change.
+pub async fn update_account(
+    crate::auth::AuthUser(user_id, _): crate::auth::AuthUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateAccountRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let parsed_hash =
+        PasswordHash::new(&user.password_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Argon2::default()
+        .verify_password(req.current_password.as_bytes(), &parsed_hash)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    if let Some(email) = &req.email {
+        let email = email.trim();
+        let email = (!email.is_empty()).then_some(email);
+        sqlx::query("UPDATE users SET email = $1 WHERE id = $2")
+            .bind(email)
+            .bind(user_id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::CONFLICT)?; // email already in use
+    }
+
+    if let Some(new_password) = &req.new_password {
+        if !new_password.is_empty() {
+            let salt = SaltString::generate(&mut OsRng);
+            let password_hash = Argon2::default()
+                .hash_password(new_password.as_bytes(), &salt)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .to_string();
+            sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+                .bind(&password_hash)
+                .bind(user_id)
+                .execute(&state.db)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // --- Password recovery ---

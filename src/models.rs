@@ -69,6 +69,14 @@ pub struct ResetPasswordRequest {
 }
 
 #[derive(Deserialize)]
+pub struct UpdateAccountRequest {
+    pub current_password: String,
+    pub new_password: Option<String>,
+    /// `Some("")` clears the email; `None` leaves it unchanged.
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
