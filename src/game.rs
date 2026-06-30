@@ -17,6 +17,23 @@ pub fn generate_pin() -> String {
     format!("{:06}", rng.gen_range(0..1_000_000))
 }
 
+/// Pool of friendly avatar emojis assigned to players on join.
+const AVATAR_POOL: &[&str] = &[
+    "🦊", "🐱", "🐶", "🐼", "🦁", "🐯", "🐸", "🐵", "🦄", "🐧", "🐨", "🐰",
+    "🐻", "🐮", "🐷", "🦝", "🦒", "🦔", "🦦", "🐢", "🐳", "🐙", "🦋", "🐝",
+    "🍕", "🍔", "🌮", "🍦", "🍩", "🍓", "🍉", "🍒", "🥑", "🍍", "🥥",
+    "🚀", "⚡", "🔥", "⭐", "🌟", "💎", "🎩", "👑", "🎯", "🎨", "🎸", "🎲",
+];
+
+pub fn pick_avatar() -> String {
+    use rand::seq::SliceRandom;
+    AVATAR_POOL
+        .choose(&mut rand::thread_rng())
+        .copied()
+        .unwrap_or("🙂")
+        .to_string()
+}
+
 #[derive(Clone)]
 pub struct QuizData {
     pub title: String,
@@ -42,6 +59,7 @@ pub struct AnswerChoice {
 
 pub struct Player {
     pub nickname: String,
+    pub avatar: String,
     pub score: i64,
     pub tx: mpsc::UnboundedSender<String>,
 }
@@ -80,9 +98,9 @@ pub struct GameSession {
     pub vote_options: Vec<(String, String)>,
     /// Votes cast: voter_player_id -> vote_options index.
     pub votes: HashMap<String, usize>,
-    /// Scores of players who dropped mid-game, kept by nickname so they can
-    /// reconnect and resume with their score.
-    pub disconnected: HashMap<String, i64>,
+    /// Score and avatar of players who dropped mid-game, kept by nickname so they
+    /// can reconnect and resume both with their score and original avatar.
+    pub disconnected: HashMap<String, (i64, String)>,
 }
 
 impl GameSession {
@@ -123,6 +141,7 @@ impl GameSession {
         let mut entries: Vec<_> = self
             .players.values().map(|p| LeaderboardEntry {
                 nickname: p.nickname.clone(),
+                avatar: p.avatar.clone(),
                 score: p.score,
             })
             .collect();
@@ -134,5 +153,6 @@ impl GameSession {
 #[derive(Serialize, Clone)]
 pub struct LeaderboardEntry {
     pub nickname: String,
+    pub avatar: String,
     pub score: i64,
 }

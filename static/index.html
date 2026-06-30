@@ -597,6 +597,14 @@
             font-weight: 700;
             font-size: 1.1rem;
             animation: popIn 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .player-avatar {
+            font-size: 1.2em;
+            line-height: 1;
         }
 
         @keyframes popIn {
@@ -2365,7 +2373,7 @@
                 renderLobby(data);
                 break;
             case 'player_joined':
-                addPlayer(data.nickname, data.player_count);
+                addPlayer(data.nickname, data.player_count, data.avatar);
                 sfx.play('pop');
                 break;
             case 'player_left':
@@ -2407,10 +2415,14 @@
         document.getElementById('lobby-pin').textContent = data.pin;
         const playersContainer = document.getElementById('lobby-players');
         playersContainer.innerHTML = '';
-        (data.players || []).forEach(name => {
+        (data.players || []).forEach(p => {
+            // Backwards-compat: server may still send a bare string for older clients.
+            const nickname = typeof p === 'string' ? p : p.nickname;
+            const avatar = typeof p === 'string' ? '' : (p.avatar || '');
             const el = document.createElement('div');
             el.className = 'lobby-player';
-            el.textContent = name;
+            el.dataset.nickname = nickname;
+            el.innerHTML = `<span class="player-avatar">${escapeHtml(avatar)}</span>${escapeHtml(nickname)}`;
             playersContainer.appendChild(el);
         });
         const count = (data.players || []).length;
@@ -2423,13 +2435,13 @@
         setGameMusic(data.music_url);
     }
 
-    function addPlayer(nickname, playerCount) {
+    function addPlayer(nickname, playerCount, avatar) {
         currentTotalPlayers = playerCount;
         const playersContainer = document.getElementById('lobby-players');
         const el = document.createElement('div');
         el.className = 'lobby-player';
-        el.textContent = nickname;
         el.dataset.nickname = nickname;
+        el.innerHTML = `<span class="player-avatar">${escapeHtml(avatar || '')}</span>${escapeHtml(nickname)}`;
         playersContainer.appendChild(el);
         document.getElementById('lobby-player-count').textContent = playerCount;
         document.getElementById('start-game-btn').disabled = playerCount < 1;
@@ -2578,7 +2590,7 @@
             const scoreFrom = scoreTarget - gained;
             row.innerHTML = `
                 <div class="leaderboard-rank">${i === 0 ? '\uD83E\uDD47' : i === 1 ? '\uD83E\uDD48' : i === 2 ? '\uD83E\uDD49' : '#' + (i+1)}</div>
-                <div class="leaderboard-name">${escapeHtml(entry.nickname)}</div>
+                <div class="leaderboard-name"><span class="player-avatar">${escapeHtml(entry.avatar || '')}</span> ${escapeHtml(entry.nickname)}</div>
                 <div class="leaderboard-score" data-from="${scoreFrom}" data-to="${scoreTarget}">${scoreFrom}</div>
                 ${gained > 0 ? `<div class="leaderboard-gained">+${gained}</div>` : '<div class="leaderboard-gained"></div>'}
             `;
@@ -2645,6 +2657,7 @@
             if (rank < leaderboard.length) {
                 const entry = leaderboard[rank];
                 place.innerHTML = `
+                    <div class="player-avatar" style="font-size:2.2rem; margin-bottom:4px;">${escapeHtml(entry.avatar || '')}</div>
                     <div class="podium-name">${escapeHtml(entry.nickname)}</div>
                     <div class="podium-score">${entry.score} pts</div>
                     <div class="podium-bar">${placeLabels[rank]}</div>
@@ -2700,7 +2713,7 @@
                 row.style.animationDelay = (i * 0.1) + 's';
                 row.innerHTML = `
                     <div class="leaderboard-rank">${i < 3 ? placeEmojis[i] : '#' + (i+1)}</div>
-                    <div class="leaderboard-name">${escapeHtml(entry.nickname)}</div>
+                    <div class="leaderboard-name"><span class="player-avatar">${escapeHtml(entry.avatar || '')}</span> ${escapeHtml(entry.nickname)}</div>
                     <div class="leaderboard-score">${entry.score}</div>
                 `;
                 lb.appendChild(row);

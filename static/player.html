@@ -348,6 +348,7 @@
 
     <!-- 2. Waiting screen -->
     <div id="waiting-screen" class="screen">
+        <div id="waiting-avatar" style="font-size:3.5rem; margin-bottom:1vh;"></div>
         <div class="nickname-display" id="waiting-nickname"></div>
         <div class="waiting-text">Waiting for host to start...</div>
     </div>
@@ -636,6 +637,7 @@
                     joinBtn.disabled = false;
                     joinBtn.textContent = 'Join!';
                     document.getElementById('waiting-nickname').textContent = nickname;
+                    document.getElementById('waiting-avatar').textContent = data.avatar || '';
                     // Apply game background
                     if (data.background_url) {
                         const bg = document.getElementById('game-background');
@@ -919,7 +921,7 @@
                 row.style.transform = 'scale(0.8)';
                 row.innerHTML =
                     `<span class="lb-rank">${i < 3 ? emojis[i] : (i+1) + '.'}</span>` +
-                    `<span class="lb-name">${escapeHtml(entry.nickname)}</span>` +
+                    `<span class="lb-name">${entry.avatar ? escapeHtml(entry.avatar) + ' ' : ''}${escapeHtml(entry.nickname)}</span>` +
                     `<span class="lb-score">${entry.score}</span>`;
 
                 // Insert in correct position

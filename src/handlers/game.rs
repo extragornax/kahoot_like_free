@@ -167,7 +167,11 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
         };
         session.host_tx = Some(tx);
 
-        let player_list: Vec<_> = session.players.values().map(|p| p.nickname.clone()).collect();
+        let player_list: Vec<_> = session
+            .players
+            .values()
+            .map(|p| json!({ "nickname": p.nickname, "avatar": p.avatar }))
+            .collect();
         json!({
             "type": "lobby",
             "pin": pin,
@@ -279,10 +283,11 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
         let started = session.phase != GamePhase::Lobby;
 
         // Mid-game: only a previously-disconnected player (matched by nickname)
-        // may rejoin, resuming with their score. Fresh joins are rejected.
-        let score = if started {
+        // may rejoin, resuming with their score and original avatar.
+        // Fresh joins are rejected.
+        let (score, avatar) = if started {
             match session.disconnected.remove(&nickname) {
-                Some(score) => score,
+                Some(state) => state,
                 None => {
                     let msg =
                         json!({"type": "error", "message": "Game already started"}).to_string();
@@ -292,13 +297,14 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                 }
             }
         } else {
-            0
+            (0, game::pick_avatar())
         };
 
         session.players.insert(
             player_id.clone(),
             Player {
                 nickname: nickname.clone(),
+                avatar: avatar.clone(),
                 score,
                 tx,
             },
@@ -309,6 +315,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             &json!({
                 "type": "player_joined",
                 "nickname": nickname,
+                "avatar": avatar,
                 "player_count": player_count,
             })
             .to_string(),
@@ -323,6 +330,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                 "type": "joined",
                 "message": "Waiting for host to start the game...",
                 "background_url": bg,
+                "avatar": avatar,
             })
             .to_string()
         }
@@ -446,9 +454,11 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
     send_task.abort();
     if let Some(mut session) = state.games.get_mut(&pin) {
         if let Some(player) = session.players.remove(&player_id) {
-            // Mid-game: keep the score so the player can reconnect by nickname.
+            // Mid-game: keep the score and avatar so the player can reconnect by nickname.
             if session.phase != GamePhase::Lobby {
-                session.disconnected.insert(player.nickname, player.score);
+                session
+                    .disconnected
+                    .insert(player.nickname, (player.score, player.avatar));
             }
         }
         let player_count = session.players.len();
@@ -633,6 +643,7 @@ fn close_question(session: &mut GameSession) {
                     .unwrap_or(0);
                 json!({
                     "nickname": e.nickname,
+                    "avatar": e.avatar,
                     "score": e.score,
                     "gained": e.score - prev,
                 })
@@ -834,7 +845,7 @@ fn finalize_open(session: &mut GameSession) {
                     .find(|(id, _)| session.players.get(*id).map(|p| p.nickname == e.nickname).unwrap_or(false))
                     .map(|(_, &s)| s)
                     .unwrap_or(0);
-                json!({ "nickname": e.nickname, "score": e.score, "gained": e.score - prev })
+                json!({ "nickname": e.nickname, "avatar": e.avatar, "score": e.score, "gained": e.score - prev })
             }).collect::<Vec<_>>(),
             "is_last": is_last,
             "fastest_ms": 0,
