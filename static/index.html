@@ -1712,7 +1712,15 @@
     const DEEP_MENU_SCREENS = new Set([
         'create-screen', 'preview-screen', 'admin-screen'
     ]);
+    // Screens that mean a live-game session is in progress. Back from any of
+    // these prompts to confirm before disconnecting from the game.
+    const GAME_SCREENS = new Set([
+        'lobby-screen', 'question-screen', 'slide-screen',
+        'open-question-screen', 'voting-screen', 'results-screen',
+        'final-screen', 'numeric-question-screen', 'numeric-results-screen'
+    ]);
     let _showingFromPopstate = false;
+    let _inGameSession = false;
 
     function showScreen(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -1723,10 +1731,41 @@
             && history.state?.deepScreen !== id) {
             history.pushState({ deepScreen: id }, '');
         }
+        // Entering a live-game screen: install one back-trap for the session.
+        if (GAME_SCREENS.has(id) && !_inGameSession && !_showingFromPopstate) {
+            _inGameSession = true;
+            history.pushState({ gameTrap: true }, '');
+        }
+        // Leaving all game screens: clear the in-session flag so we don't
+        // confirm on future back presses from the dashboard etc.
+        if (!GAME_SCREENS.has(id)) {
+            _inGameSession = false;
+        }
     }
 
     window.addEventListener('popstate', () => {
         const active = document.querySelector('.screen.active')?.id;
+
+        // Live-game trap: confirm before actually leaving.
+        if (_inGameSession && GAME_SCREENS.has(active)) {
+            const midGame = active !== 'final-screen';
+            const msg = midGame
+                ? 'Leave the game? All players will be disconnected.'
+                : 'Return to the dashboard?';
+            if (confirm(msg)) {
+                _inGameSession = false;
+                if (ws) { ws.close(); ws = null; }
+                clearGameMedia();
+                _showingFromPopstate = true;
+                showScreen('dashboard-screen');
+                _showingFromPopstate = false;
+            } else {
+                // Re-arm the trap so the next back triggers this handler again.
+                history.pushState({ gameTrap: true }, '');
+            }
+            return;
+        }
+
         if (DEEP_MENU_SCREENS.has(active)) {
             _showingFromPopstate = true;
             showScreen('dashboard-screen');

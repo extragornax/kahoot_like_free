@@ -630,10 +630,47 @@
         // ── Helpers ──
         const screens = document.querySelectorAll('.screen');
 
+        // Live-game screens: any back attempt from these confirms first.
+        const PLAYER_GAME_SCREENS = new Set([
+            'waiting-screen', 'question-screen', 'slide-screen',
+            'open-answer-screen', 'vote-screen', 'numeric-screen',
+            'answered-screen', 'result-screen', 'final-screen'
+        ]);
+        let _playerInGame = false;
+        let _playerFromPopstate = false;
+
         function showScreen(id) {
             screens.forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
+            if (PLAYER_GAME_SCREENS.has(id) && !_playerInGame && !_playerFromPopstate) {
+                _playerInGame = true;
+                history.pushState({ playerGame: true }, '');
+            }
+            if (!PLAYER_GAME_SCREENS.has(id)) {
+                _playerInGame = false;
+            }
         }
+
+        window.addEventListener('popstate', () => {
+            const active = document.querySelector('.screen.active')?.id;
+            if (_playerInGame && PLAYER_GAME_SCREENS.has(active)) {
+                const midGame = active !== 'final-screen';
+                const msg = midGame ? 'Leave the game?' : 'Return to the join screen?';
+                if (confirm(msg)) {
+                    _playerInGame = false;
+                    clearSession();
+                    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+                    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+                    reconnectTries = MAX_RECONNECT; // stop auto-reconnect on our own close
+                    _playerFromPopstate = true;
+                    showScreen('join-screen');
+                    _playerFromPopstate = false;
+                    document.getElementById('reconnect-banner').style.display = 'none';
+                } else {
+                    history.pushState({ playerGame: true }, '');
+                }
+            }
+        });
 
         function ordinal(n) {
             const s = ['th', 'st', 'nd', 'rd'];
