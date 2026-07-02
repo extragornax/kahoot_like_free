@@ -1,6 +1,9 @@
 use axum::{
     Router,
-    http::HeaderValue,
+    extract::{Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use sqlx::PgPool;
@@ -13,11 +16,42 @@ mod game;
 mod handlers;
 mod models;
 pub mod pow;
+mod ratelimit;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
     pub games: game::GameManager,
+    pub rate_limiter: ratelimit::RateLimiter,
+}
+
+/// Best-effort client IP, trusting proxy headers (prod runs behind Caddy/Cloudflare).
+fn client_ip(headers: &HeaderMap) -> String {
+    for h in ["cf-connecting-ip", "x-real-ip"] {
+        if let Some(v) = headers.get(h).and_then(|v| v.to_str().ok()) {
+            return v.trim().to_string();
+        }
+    }
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        if let Some(first) = xff.split(',').next() {
+            return first.trim().to_string();
+        }
+    }
+    "unknown".to_string()
+}
+
+/// Rate-limit middleware for auth endpoints: 10 requests / 60s per client IP.
+async fn auth_rate_limit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    req: Request,
+    next: Next,
+) -> Response {
+    if state.rate_limiter.check(&client_ip(&headers)) {
+        next.run(req).await
+    } else {
+        (StatusCode::TOO_MANY_REQUESTS, "Too many requests. Try again shortly.").into_response()
+    }
 }
 
 #[tokio::main]
@@ -61,6 +95,7 @@ async fn main() {
     let state = AppState {
         db: pool,
         games: game::new_manager(),
+        rate_limiter: ratelimit::RateLimiter::new(),
     };
 
     let admin = Router::new()
@@ -71,13 +106,18 @@ async fn main() {
         .route("/users/{id}", axum::routing::delete(handlers::admin::delete_user))
         .route("/quizzes/{id}", axum::routing::delete(handlers::admin::delete_quiz));
 
-    let api = Router::new()
-        .nest("/admin", admin)
-        .route("/auth/challenge", get(handlers::auth::challenge))
+    // Abuse-prone auth endpoints, rate-limited per client IP.
+    let auth_limited = Router::new()
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/forgot", post(handlers::auth::forgot_password))
         .route("/auth/reset", post(handlers::auth::reset_password))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth_rate_limit));
+
+    let api = Router::new()
+        .nest("/admin", admin)
+        .merge(auth_limited)
+        .route("/auth/challenge", get(handlers::auth::challenge))
         .route("/auth/me", get(handlers::auth::me).put(handlers::auth::update_account))
         .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))
         .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))
