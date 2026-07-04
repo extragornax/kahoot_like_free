@@ -189,6 +189,18 @@
             overflow: hidden;
         }
 
+        /* Voting can have many player-submitted answers — let the list
+           scroll instead of squishing every button to a sliver on mobile. */
+        #vote-screen .answers-container {
+            overflow-y: auto;
+            min-height: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+        #vote-screen .answer-btn {
+            flex: 0 0 auto;
+            min-height: 2.6rem;
+        }
+
         .open-input-row {
             width: 100%;
             display: flex;
