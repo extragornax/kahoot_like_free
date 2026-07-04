@@ -1539,8 +1539,7 @@
     <div class="streak-picker" id="streak-picker">
         <div class="streak-picker-label">Streak bonus</div>
         <div class="streak-picker-options" role="radiogroup" aria-label="Streak bonus mode">
-            <button type="button" class="streak-option" data-mode="off">Off</button>
-            <button type="button" class="streak-option active" data-mode="animations">Animations only</button>
+            <button type="button" class="streak-option active" data-mode="off">Off</button>
             <button type="button" class="streak-option" data-mode="multiplier">Multiplier</button>
         </div>
     </div>
@@ -2674,7 +2673,11 @@
         };
     }
 
-    let streakMode = localStorage.getItem('kahoot_streak_mode') || 'animations';
+    // Allowed picker values. 'animations' was removed; fold any stale
+    // localStorage value back to 'off'.
+    const _ALLOWED_STREAK_MODES = new Set(['off', 'multiplier']);
+    let streakMode = localStorage.getItem('kahoot_streak_mode') || 'off';
+    if (!_ALLOWED_STREAK_MODES.has(streakMode)) streakMode = 'off';
 
     function applyStreakMode(mode) {
         streakMode = mode;
