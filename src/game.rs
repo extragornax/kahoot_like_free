@@ -19,10 +19,9 @@ pub fn generate_pin() -> String {
 
 /// Pool of friendly avatar emojis assigned to players on join.
 const AVATAR_POOL: &[&str] = &[
-    "🦊", "🐱", "🐶", "🐼", "🦁", "🐯", "🐸", "🐵", "🦄", "🐧", "🐨", "🐰",
-    "🐻", "🐮", "🐷", "🦝", "🦒", "🦔", "🦦", "🐢", "🐳", "🐙", "🦋", "🐝",
-    "🍕", "🍔", "🌮", "🍦", "🍩", "🍓", "🍉", "🍒", "🥑", "🍍", "🥥",
-    "🚀", "⚡", "🔥", "⭐", "🌟", "💎", "🎩", "👑", "🎯", "🎨", "🎸", "🎲",
+    "🦊", "🐱", "🐶", "🐼", "🦁", "🐯", "🐸", "🐵", "🦄", "🐧", "🐨", "🐰", "🐻", "🐮", "🐷", "🦝",
+    "🦒", "🦔", "🦦", "🐢", "🐳", "🐙", "🦋", "🐝", "🍕", "🍔", "🌮", "🍦", "🍩", "🍓", "🍉", "🍒",
+    "🥑", "🍍", "🥥", "🚀", "⚡", "🔥", "⭐", "🌟", "💎", "🎩", "👑", "🎯", "🎨", "🎸", "🎲",
 ];
 
 pub fn pick_avatar() -> String {
@@ -64,7 +63,35 @@ pub struct Player {
     /// Current run of consecutive correct multi-choice answers. Resets on a
     /// wrong/missed multi-choice answer; other question kinds leave it alone.
     pub streak: u32,
+    /// Questions answered correctly over the whole game (choice + numeric).
+    pub correct_count: u32,
+    /// Longest streak reached at any point in the game.
+    pub best_streak: u32,
     pub tx: mpsc::UnboundedSender<String>,
+}
+
+/// State kept for a player who dropped mid-game, so a reconnect by the same
+/// nickname resumes where they left off.
+pub struct DroppedPlayer {
+    pub score: i64,
+    pub avatar: String,
+    pub streak: u32,
+    pub correct_count: u32,
+    pub best_streak: u32,
+}
+
+/// Result summary of one closed question, accumulated during the game and
+/// persisted to game history when the game finishes.
+pub struct QuestionStat {
+    pub text: String,
+    pub kind: String,
+    /// Players who submitted an answer.
+    pub answered: usize,
+    /// Players who answered correctly (scored, for numeric). None for open
+    /// questions, where answers are voted on rather than correct.
+    pub correct: Option<usize>,
+    /// Players connected when the question closed.
+    pub player_count: usize,
 }
 
 /// How streaks of consecutive correct answers affect the game.
@@ -132,6 +159,10 @@ pub enum GamePhase {
 pub struct GameSession {
     pub pin: String,
     pub quiz: QuizData,
+    /// User who created the game; owns its history entry.
+    pub host_id: uuid::Uuid,
+    /// Quiz the game was created from (history keeps a denormalized title too).
+    pub quiz_id: uuid::Uuid,
     pub host_tx: Option<mpsc::UnboundedSender<String>>,
     pub players: HashMap<String, Player>,
     pub phase: GamePhase,
@@ -146,18 +177,22 @@ pub struct GameSession {
     pub vote_options: Vec<(String, String)>,
     /// Votes cast: voter_player_id -> vote_options index.
     pub votes: HashMap<String, usize>,
-    /// Score, avatar, and streak of players who dropped mid-game, kept by
-    /// nickname so a reconnect can restore all three.
-    pub disconnected: HashMap<String, (i64, String, u32)>,
+    /// State of players who dropped mid-game, kept by nickname so a
+    /// reconnect can restore it.
+    pub disconnected: HashMap<String, DroppedPlayer>,
     /// How streaks are tracked for this game (chosen by the host in the lobby).
     pub streak_mode: StreakMode,
+    /// Per-question results accumulated as questions close, persisted at the end.
+    pub question_stats: Vec<QuestionStat>,
 }
 
 impl GameSession {
-    pub fn new(pin: String, quiz: QuizData) -> Self {
+    pub fn new(pin: String, quiz: QuizData, host_id: uuid::Uuid, quiz_id: uuid::Uuid) -> Self {
         Self {
             pin,
             quiz,
+            host_id,
+            quiz_id,
             host_tx: None,
             players: HashMap::new(),
             phase: GamePhase::Lobby,
@@ -170,6 +205,7 @@ impl GameSession {
             votes: HashMap::new(),
             disconnected: HashMap::new(),
             streak_mode: StreakMode::Off,
+            question_stats: Vec::new(),
         }
     }
 
@@ -191,7 +227,9 @@ impl GameSession {
 
     pub fn leaderboard(&self) -> Vec<LeaderboardEntry> {
         let mut entries: Vec<_> = self
-            .players.values().map(|p| LeaderboardEntry {
+            .players
+            .values()
+            .map(|p| LeaderboardEntry {
                 nickname: p.nickname.clone(),
                 avatar: p.avatar.clone(),
                 score: p.score,

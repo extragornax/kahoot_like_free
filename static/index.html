@@ -1351,6 +1351,155 @@
             80% { opacity: 1; }
             100% { opacity: 0; }
         }
+        /* History screens */
+        #history-screen,
+        #history-detail-screen {
+            flex-direction: column;
+        }
+
+        .history-item {
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .history-item:hover { background: rgba(255, 255, 255, 0.18); }
+
+        .history-item-main { min-width: 0; }
+
+        .history-item-meta {
+            font-size: 0.85rem;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        .history-winner {
+            font-weight: 700;
+            white-space: nowrap;
+            flex-shrink: 0;
+            margin-left: 16px;
+        }
+
+        .history-stats-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+
+        .stat-tile {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px 20px;
+            text-align: center;
+        }
+
+        .stat-tile-value {
+            font-size: 1.9rem;
+            font-weight: 900;
+            line-height: 1.2;
+        }
+
+        .stat-tile-label {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+
+        .history-player-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .history-player-rank {
+            font-weight: 800;
+            font-size: 1.1rem;
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        .history-player-name {
+            flex: 1;
+            font-size: 1.05rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-player-extra {
+            font-size: 0.85rem;
+            opacity: 0.75;
+            white-space: nowrap;
+        }
+
+        .history-player-score {
+            font-weight: 800;
+            font-size: 1.05rem;
+            width: 90px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        /* Per-question report rows: text line + thin magnitude bar underneath */
+        .hq-row { margin-bottom: 16px; }
+
+        .hq-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 6px;
+        }
+
+        .hq-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .hq-num { opacity: 0.6; margin-right: 6px; }
+
+        .hq-badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.18);
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+
+        .hq-value {
+            font-weight: 800;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .hq-track {
+            height: 14px;
+            background: rgba(255, 255, 255, 0.14);
+            border-radius: 7px;
+            overflow: hidden;
+        }
+
+        .hq-fill {
+            height: 100%;
+            background: #fff;
+            border-radius: 7px;
+            transition: width 0.5s ease;
+        }
+
+        .hq-fill.dim { background: rgba(255, 255, 255, 0.45); }
+
         /* ── Mobile responsive ── */
         @media (max-width: 768px) {
             .auth-card {
@@ -1403,6 +1552,11 @@
         @media (max-width: 480px) {
             .lobby-pin { font-size: 44px; letter-spacing: 4px; }
             .lobby-title { font-size: 1.3rem; }
+
+            .history-stats-row { flex-wrap: wrap; }
+            .stat-tile { min-width: 40%; }
+            .history-winner { margin-left: 0; }
+            .history-player-extra { display: none; }
 
             .answers-grid { grid-template-columns: 1fr !important; }
             .answer-block { min-height: 50px; font-size: 1rem; }
@@ -1460,6 +1614,7 @@
         <h1>Kahoot Free</h1>
         <div style="display:flex; gap:8px;">
             <button class="btn btn-blue btn-small" id="admin-btn" style="display:none">Admin</button>
+            <button class="btn btn-white btn-small" id="history-btn">History</button>
             <button class="btn btn-white btn-small" id="account-btn">Account</button>
             <button class="btn btn-white btn-small" id="logout-btn">Logout</button>
         </div>
@@ -1661,6 +1816,37 @@
     </div>
 </div>
 
+<!-- Screen 9: Game history list -->
+<div id="history-screen" class="screen">
+    <div class="top-bar">
+        <h1>Game History</h1>
+        <button class="btn btn-white btn-small" id="history-back-btn">Back</button>
+    </div>
+    <div class="dashboard-body">
+        <div class="quiz-list-title">Past Games</div>
+        <div id="history-list" class="quiz-list"></div>
+    </div>
+</div>
+
+<!-- Screen 10: Game history detail -->
+<div id="history-detail-screen" class="screen">
+    <div class="top-bar">
+        <h1 id="history-detail-title">Game Results</h1>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-red btn-small" id="history-delete-btn">Delete</button>
+            <button class="btn btn-white btn-small" id="history-detail-back-btn">Back</button>
+        </div>
+    </div>
+    <div class="dashboard-body">
+        <div class="history-item-meta" id="history-detail-meta" style="margin:-10px 0 20px;"></div>
+        <div class="history-stats-row" id="history-stats-row"></div>
+        <div class="quiz-list-title">Final Leaderboard</div>
+        <div id="history-players"></div>
+        <div class="quiz-list-title" style="margin-top:30px;">How hard was each question?</div>
+        <div id="history-questions"></div>
+    </div>
+</div>
+
 <!-- Admin: user detail modal -->
 <div id="admin-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; display:none; align-items:center; justify-content:center;">
     <div style="background:#46178f; border:2px solid rgba(255,255,255,0.2); border-radius:16px; padding:30px; width:90%; max-width:600px; max-height:85vh; overflow-y:auto;">
@@ -1709,7 +1895,8 @@
     // Screens that are sub-menus of the Dashboard. Pressing browser back from
     // any of these returns to the Dashboard instead of exiting the app.
     const DEEP_MENU_SCREENS = new Set([
-        'create-screen', 'preview-screen', 'admin-screen'
+        'create-screen', 'preview-screen', 'admin-screen',
+        'history-screen', 'history-detail-screen'
     ]);
     // Screens that mean a live-game session is in progress. Back from any of
     // these prompts to confirm before disconnecting from the game.
@@ -2077,6 +2264,151 @@
         d.textContent = text;
         return d.innerHTML;
     }
+
+    // --- Game history ---
+    let currentHistoryId = null;
+
+    document.getElementById('history-btn').addEventListener('click', loadHistory);
+    document.getElementById('history-back-btn').addEventListener('click', loadDashboard);
+    document.getElementById('history-detail-back-btn').addEventListener('click', loadHistory);
+
+    async function loadHistory() {
+        showScreen('history-screen');
+        const list = document.getElementById('history-list');
+        list.innerHTML = '';
+        try {
+            const res = await apiFetch('/api/history');
+            if (!res.ok) {
+                list.innerHTML = '<div class="quiz-empty">Failed to load history.</div>';
+                return;
+            }
+            const games = await res.json();
+            if (!games.length) {
+                list.innerHTML = '<div class="quiz-empty">No games yet. Finish a game and its results will show up here.</div>';
+                return;
+            }
+            games.forEach(g => {
+                const when = new Date(g.finished_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+                const item = document.createElement('div');
+                item.className = 'quiz-item history-item';
+                const winner = g.winner_nickname
+                    ? `<div class="history-winner">🏆 ${g.winner_avatar ? escapeHtml(g.winner_avatar) + ' ' : ''}${escapeHtml(g.winner_nickname)}</div>`
+                    : '';
+                item.innerHTML = `
+                    <div class="history-item-main">
+                        <div class="quiz-item-title">${escapeHtml(g.quiz_title)}</div>
+                        <div class="history-item-meta">${when} &middot; ${g.player_count} player${g.player_count === 1 ? '' : 's'} &middot; ${g.question_count} question${g.question_count === 1 ? '' : 's'}</div>
+                    </div>
+                    ${winner}
+                `;
+                item.addEventListener('click', () => loadHistoryDetail(g.id));
+                list.appendChild(item);
+            });
+        } catch (e) {
+            list.innerHTML = '<div class="quiz-empty">Failed to load history.</div>';
+        }
+    }
+
+    async function loadHistoryDetail(id) {
+        try {
+            const res = await apiFetch('/api/history/' + id);
+            if (!res.ok) { toast('Failed to load game results.'); return; }
+            const detail = await res.json();
+            currentHistoryId = id;
+            showScreen('history-detail-screen');
+            renderHistoryDetail(detail);
+        } catch (e) {
+            toast('Failed to load game results.');
+        }
+    }
+
+    function renderHistoryDetail(detail) {
+        document.getElementById('history-detail-title').textContent = detail.quiz_title;
+        const when = new Date(detail.finished_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
+        document.getElementById('history-detail-meta').textContent = when;
+
+        // Overall accuracy across scorable questions (open/vote rounds excluded).
+        const scorable = detail.questions.filter(q => q.correct_count !== null);
+        const possible = scorable.reduce((s, q) => s + q.player_count, 0);
+        const totalCorrect = scorable.reduce((s, q) => s + q.correct_count, 0);
+        const accuracy = possible ? Math.round(100 * totalCorrect / possible) : null;
+
+        document.getElementById('history-stats-row').innerHTML = `
+            <div class="stat-tile">
+                <div class="stat-tile-value">${detail.player_count}</div>
+                <div class="stat-tile-label">Player${detail.player_count === 1 ? '' : 's'}</div>
+            </div>
+            <div class="stat-tile">
+                <div class="stat-tile-value">${detail.question_count}</div>
+                <div class="stat-tile-label">Question${detail.question_count === 1 ? '' : 's'}</div>
+            </div>
+            <div class="stat-tile">
+                <div class="stat-tile-value">${accuracy === null ? '—' : accuracy + '%'}</div>
+                <div class="stat-tile-label">Overall accuracy</div>
+            </div>
+        `;
+
+        const medals = ['🥇', '🥈', '🥉'];
+        const playersEl = document.getElementById('history-players');
+        playersEl.innerHTML = '';
+        detail.players.forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'history-player-row';
+            const extras = [];
+            if (scorable.length) extras.push(`✓ ${p.correct_count}/${scorable.length}`);
+            if (p.best_streak >= 2) extras.push(`🔥 ${p.best_streak}`);
+            row.innerHTML = `
+                <div class="history-player-rank">${p.rank <= 3 ? medals[p.rank - 1] : p.rank + '.'}</div>
+                <div class="history-player-name">${p.avatar ? escapeHtml(p.avatar) + ' ' : ''}${escapeHtml(p.nickname)}</div>
+                <div class="history-player-extra">${extras.join(' &nbsp; ')}</div>
+                <div class="history-player-score">${p.score}</div>
+            `;
+            playersEl.appendChild(row);
+        });
+        if (!detail.players.length) {
+            playersEl.innerHTML = '<div class="quiz-empty">No players.</div>';
+        }
+
+        const questionsEl = document.getElementById('history-questions');
+        questionsEl.innerHTML = '';
+        detail.questions.forEach((q, i) => {
+            const row = document.createElement('div');
+            row.className = 'hq-row';
+            const isVote = q.correct_count === null;
+            const numerator = isVote ? q.answered_count : q.correct_count;
+            const pct = q.player_count ? Math.round(100 * numerator / q.player_count) : 0;
+            const value = isVote
+                ? `${q.answered_count}/${q.player_count} answered`
+                : `${q.correct_count}/${q.player_count} correct &middot; ${pct}%`;
+            row.innerHTML = `
+                <div class="hq-head">
+                    <div class="hq-title"><span class="hq-num">${i + 1}.</span>${escapeHtml(q.text)}${isVote ? '<span class="hq-badge">VOTE ROUND</span>' : ''}</div>
+                    <div class="hq-value">${value}</div>
+                </div>
+                <div class="hq-track">
+                    <div class="hq-fill${isVote ? ' dim' : ''}" style="width:${pct}%"></div>
+                </div>
+            `;
+            questionsEl.appendChild(row);
+        });
+        if (!detail.questions.length) {
+            questionsEl.innerHTML = '<div class="quiz-empty">No question data.</div>';
+        }
+    }
+
+    document.getElementById('history-delete-btn').addEventListener('click', async () => {
+        if (!currentHistoryId) return;
+        if (!confirm('Delete this game from history? This cannot be undone.')) return;
+        try {
+            const res = await apiFetch('/api/history/' + currentHistoryId, { method: 'DELETE' });
+            if (!res.ok) { toast('Delete failed.'); return; }
+            currentHistoryId = null;
+            toast('Game deleted from history.');
+            loadHistory();
+        } catch (e) {
+            toast('Delete failed.');
+        }
+    });
 
     async function exportQuiz(id, title) {
         try {

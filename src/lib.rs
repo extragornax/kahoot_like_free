@@ -20,7 +20,10 @@ pub fn build_app(state: AppState) -> Router {
     let admin = Router::new()
         .route("/users", get(handlers::admin::list_users))
         .route("/users/{id}/quizzes", get(handlers::admin::user_quizzes))
-        .route("/users/{id}/password", put(handlers::admin::change_password))
+        .route(
+            "/users/{id}/password",
+            put(handlers::admin::change_password),
+        )
         .route("/users/{id}/admin", put(handlers::admin::set_admin))
         .route("/users/{id}", delete(handlers::admin::delete_user))
         .route("/quizzes/{id}", delete(handlers::admin::delete_quiz));
@@ -32,7 +35,10 @@ pub fn build_app(state: AppState) -> Router {
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/forgot", post(handlers::auth::forgot_password))
         .route("/auth/reset", post(handlers::auth::reset_password))
-        .route("/auth/me", get(handlers::auth::me).put(handlers::auth::update_account))
+        .route(
+            "/auth/me",
+            get(handlers::auth::me).put(handlers::auth::update_account),
+        )
         .route(
             "/quizzes",
             get(handlers::quiz::list).post(handlers::quiz::create),
@@ -43,9 +49,17 @@ pub fn build_app(state: AppState) -> Router {
                 .put(handlers::quiz::update)
                 .delete(handlers::quiz::delete),
         )
-        .route("/quizzes/{id}/export.xlsx", get(handlers::quiz::export_xlsx))
+        .route(
+            "/quizzes/{id}/export.xlsx",
+            get(handlers::quiz::export_xlsx),
+        )
         .route("/games/{quiz_id}", post(handlers::game::create))
         .route("/games/{pin}/qr", get(handlers::game::qr_svg))
+        .route("/history", get(handlers::history::list))
+        .route(
+            "/history/{id}",
+            get(handlers::history::get).delete(handlers::history::delete),
+        )
         .route(
             "/upload",
             post(handlers::upload::upload)

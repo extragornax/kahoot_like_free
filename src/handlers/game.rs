@@ -1,6 +1,9 @@
 use axum::{
     Json,
-    extract::{Path, Query, State, ws::{Message, WebSocket, WebSocketUpgrade}},
+    extract::{
+        Path, Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::StatusCode,
     response::IntoResponse,
 };
@@ -13,7 +16,11 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::AuthUser;
-use crate::game::{self, AnswerChoice, GamePhase, GameSession, Player, PlayerAnswer, QuestionData, QuizData, StreakMode};
+use crate::game::{
+    self, AnswerChoice, DroppedPlayer, GamePhase, GameSession, Player, PlayerAnswer, QuestionData,
+    QuestionStat, QuizData, StreakMode,
+};
+use crate::handlers::history;
 use crate::models::{Answer, Question};
 
 /// Seconds players have to vote on open answers.
@@ -69,16 +76,20 @@ pub async fn create(
 
     // Batch fetch all answers (avoids N+1)
     let question_ids: Vec<Uuid> = questions.iter().map(|q| q.id).collect();
-    let all_answers: Vec<Answer> =
-        sqlx::query_as("SELECT * FROM answers WHERE question_id = ANY($1) ORDER BY question_id, position")
-            .bind(&question_ids)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let all_answers: Vec<Answer> = sqlx::query_as(
+        "SELECT * FROM answers WHERE question_id = ANY($1) ORDER BY question_id, position",
+    )
+    .bind(&question_ids)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut answers_by_question: HashMap<Uuid, Vec<Answer>> = HashMap::new();
     for answer in all_answers {
-        answers_by_question.entry(answer.question_id).or_default().push(answer);
+        answers_by_question
+            .entry(answer.question_id)
+            .or_default()
+            .push(answer);
     }
 
     let quiz_questions: Vec<QuestionData> = questions
@@ -115,7 +126,10 @@ pub async fn create(
         }
     };
 
-    state.games.insert(pin.clone(), GameSession::new(pin.clone(), quiz_data));
+    state.games.insert(
+        pin.clone(),
+        GameSession::new(pin.clone(), quiz_data, user_id, quiz_id),
+    );
 
     Ok(Json(CreateGameResponse { pin }))
 }
@@ -191,9 +205,7 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
         .to_string()
         // guard dropped here
     };
-    let _ = ws_sender
-        .send(Message::Text(lobby_msg.into()))
-        .await;
+    let _ = ws_sender.send(Message::Text(lobby_msg.into())).await;
 
     // Forward channel → WebSocket
     let send_task = tokio::spawn(async move {
@@ -217,23 +229,37 @@ async fn handle_host(socket: WebSocket, state: AppState, pin: String) {
         match msg_type {
             "start" => {
                 if let Some(mut session) = state.games.get_mut(&pin)
-                    && session.phase == GamePhase::Lobby {
-                        if let Some(mode) = parsed["streak_mode"].as_str() {
-                            session.streak_mode = StreakMode::parse(mode);
-                        }
-                        start_question(&mut session, &state, &pin);
+                    && session.phase == GamePhase::Lobby
+                {
+                    if let Some(mode) = parsed["streak_mode"].as_str() {
+                        session.streak_mode = StreakMode::parse(mode);
                     }
+                    start_question(&mut session, &state, &pin);
+                }
             }
             "next" => {
+                // Built while holding the session lock, persisted after releasing it.
+                let mut record = None;
                 if let Some(mut session) = state.games.get_mut(&pin)
-                    && matches!(session.phase, GamePhase::Results | GamePhase::Slide) {
-                        if session.current_question + 1 < session.quiz.questions.len() {
-                            session.current_question += 1;
-                            start_question(&mut session, &state, &pin);
-                        } else {
-                            finish_game(&mut session);
-                        }
+                    && matches!(session.phase, GamePhase::Results | GamePhase::Slide)
+                {
+                    if session.current_question + 1 < session.quiz.questions.len() {
+                        session.current_question += 1;
+                        start_question(&mut session, &state, &pin);
+                    } else {
+                        finish_game(&mut session);
+                        record = Some(history::HistoryRecord::from_session(&session));
                     }
+                }
+                // Games where nobody ever played aren't worth remembering.
+                if let Some(record) = record.filter(|r| !r.players.is_empty()) {
+                    let db = state.db.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = history::persist(&db, record).await {
+                            tracing::warn!("failed to persist game history: {e}");
+                        }
+                    });
+                }
             }
             _ => {}
         }
@@ -269,10 +295,11 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text)
                     && parsed["type"].as_str() == Some("join")
-                        && let Some(nick) = parsed["nickname"].as_str()
-                            && !nick.trim().is_empty() {
-                                break nick.trim().to_string();
-                            }
+                    && let Some(nick) = parsed["nickname"].as_str()
+                    && !nick.trim().is_empty()
+                {
+                    break nick.trim().to_string();
+                }
             }
             _ => return,
         }
@@ -296,7 +323,7 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
         // Mid-game: only a previously-disconnected player (matched by nickname)
         // may rejoin, resuming with their score, original avatar, and streak.
         // Fresh joins are rejected.
-        let (score, avatar, streak) = if started {
+        let dropped = if started {
             match session.disconnected.remove(&nickname) {
                 Some(state) => state,
                 None => {
@@ -308,16 +335,25 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                 }
             }
         } else {
-            (0, game::pick_avatar(), 0)
+            DroppedPlayer {
+                score: 0,
+                avatar: game::pick_avatar(),
+                streak: 0,
+                correct_count: 0,
+                best_streak: 0,
+            }
         };
 
+        let avatar = dropped.avatar.clone();
         session.players.insert(
             player_id.clone(),
             Player {
                 nickname: nickname.clone(),
-                avatar: avatar.clone(),
-                score,
-                streak,
+                avatar: dropped.avatar,
+                score: dropped.score,
+                streak: dropped.streak,
+                correct_count: dropped.correct_count,
+                best_streak: dropped.best_streak,
                 tx,
             },
         );
@@ -371,54 +407,54 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
 
         if msg_type == "answer"
             && let Some(index) = parsed["index"].as_u64()
-                && let Some(mut session) = state.games.get_mut(&pin)
-                    && session.phase == GamePhase::Question
-                        && !session.answers.contains_key(&player_id)
-                    {
-                        let time_ms = session
-                            .question_started_at
-                            .map(|t| t.elapsed().as_millis() as u64)
-                            .unwrap_or(0);
+            && let Some(mut session) = state.games.get_mut(&pin)
+            && session.phase == GamePhase::Question
+            && !session.answers.contains_key(&player_id)
+        {
+            let time_ms = session
+                .question_started_at
+                .map(|t| t.elapsed().as_millis() as u64)
+                .unwrap_or(0);
 
-                        session.answers.insert(
-                            player_id.clone(),
-                            PlayerAnswer {
-                                answer_index: index as usize,
-                                time_ms,
-                            },
-                        );
+            session.answers.insert(
+                player_id.clone(),
+                PlayerAnswer {
+                    answer_index: index as usize,
+                    time_ms,
+                },
+            );
 
-                        let count = session.answers.len();
-                        let total = session.players.len();
-                        let n_opts = session.quiz.questions[session.current_question]
-                            .answers
-                            .len();
-                        let mut counts = vec![0usize; n_opts];
-                        for a in session.answers.values() {
-                            if a.answer_index < counts.len() {
-                                counts[a.answer_index] += 1;
-                            }
-                        }
-                        session.send_to_host(
-                            &json!({
-                                "type": "answer_count",
-                                "count": count,
-                                "total": total,
-                                "counts": counts,
-                            })
-                            .to_string(),
-                        );
+            let count = session.answers.len();
+            let total = session.players.len();
+            let n_opts = session.quiz.questions[session.current_question]
+                .answers
+                .len();
+            let mut counts = vec![0usize; n_opts];
+            for a in session.answers.values() {
+                if a.answer_index < counts.len() {
+                    counts[a.answer_index] += 1;
+                }
+            }
+            session.send_to_host(
+                &json!({
+                    "type": "answer_count",
+                    "count": count,
+                    "total": total,
+                    "counts": counts,
+                })
+                .to_string(),
+            );
 
-                        if let Some(player) = session.players.get(&player_id) {
-                            let _ = player.tx.send(
-                                json!({"type": "answer_accepted"}).to_string(),
-                            );
-                        }
+            if let Some(player) = session.players.get(&player_id) {
+                let _ = player
+                    .tx
+                    .send(json!({"type": "answer_accepted"}).to_string());
+            }
 
-                        if session.all_answered() {
-                            close_question(&mut session);
-                        }
-                    }
+            if session.all_answered() {
+                close_question(&mut session);
+            }
+        }
 
         if msg_type == "numeric_answer"
             && let Some(value) = parsed["value"].as_f64()
@@ -441,7 +477,9 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                 &json!({ "type": "answer_count", "count": count, "total": total }).to_string(),
             );
             if let Some(player) = session.players.get(&player_id) {
-                let _ = player.tx.send(json!({"type": "answer_accepted"}).to_string());
+                let _ = player
+                    .tx
+                    .send(json!({"type": "answer_accepted"}).to_string());
             }
             if count >= total {
                 close_numeric(&mut session);
@@ -464,7 +502,9 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                     &json!({ "type": "answer_count", "count": count, "total": total }).to_string(),
                 );
                 if let Some(player) = session.players.get(&player_id) {
-                    let _ = player.tx.send(json!({"type": "answer_accepted"}).to_string());
+                    let _ = player
+                        .tx
+                        .send(json!({"type": "answer_accepted"}).to_string());
                 }
 
                 if count >= total {
@@ -490,7 +530,9 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
                     &json!({ "type": "answer_count", "count": count, "total": total }).to_string(),
                 );
                 if let Some(player) = session.players.get(&player_id) {
-                    let _ = player.tx.send(json!({"type": "answer_accepted"}).to_string());
+                    let _ = player
+                        .tx
+                        .send(json!({"type": "answer_accepted"}).to_string());
                 }
 
                 if count >= total {
@@ -527,11 +569,17 @@ async fn handle_player(socket: WebSocket, state: AppState, pin: String) {
     send_task.abort();
     if let Some(mut session) = state.games.get_mut(&pin) {
         if let Some(player) = session.players.remove(&player_id) {
-            // Mid-game: keep score, avatar, and streak so the player can reconnect by nickname.
+            // Mid-game: keep the player's state so they can reconnect by nickname.
             if session.phase != GamePhase::Lobby {
                 session.disconnected.insert(
                     player.nickname,
-                    (player.score, player.avatar, player.streak),
+                    DroppedPlayer {
+                        score: player.score,
+                        avatar: player.avatar,
+                        streak: player.streak,
+                        correct_count: player.correct_count,
+                        best_streak: player.best_streak,
+                    },
                 );
             }
         }
@@ -650,9 +698,11 @@ fn start_question(session: &mut GameSession, state: &AppState, pin: &str) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(time_limit as u64)).await;
         if let Some(mut session) = games.get_mut(&pin)
-            && session.phase == GamePhase::Question && session.current_question == question_idx {
-                close_question(&mut session);
-            }
+            && session.phase == GamePhase::Question
+            && session.current_question == question_idx
+        {
+            close_question(&mut session);
+        }
     });
 }
 
@@ -701,6 +751,8 @@ fn close_question(session: &mut GameSession) {
 
         if correct {
             player.streak += 1;
+            player.correct_count += 1;
+            player.best_streak = player.best_streak.max(player.streak);
         } else {
             player.streak = 0;
         }
@@ -718,6 +770,14 @@ fn close_question(session: &mut GameSession) {
             (correct, base_points, awarded, player.streak, time_ms),
         );
     }
+
+    session.question_stats.push(QuestionStat {
+        text: q.text.clone(),
+        kind: q.kind.clone(),
+        answered: session.answers.len(),
+        correct: Some(player_results.values().filter(|r| r.0).count()),
+        player_count: session.players.len(),
+    });
 
     // Speed stats
     answer_times.sort();
@@ -885,8 +945,11 @@ fn close_numeric(session: &mut GameSession) {
         }
     }
     // Smallest error first; ties broken by faster time.
-    ordered.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal)
-        .then(a.2.cmp(&b.2)));
+    ordered.sort_by(|a, b| {
+        a.3.partial_cmp(&b.3)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.2.cmp(&b.2))
+    });
 
     // Map player_id -> (rank index, base_points). Awarded only to top-3.
     let mut rank_map = HashMap::<String, (usize, i64)>::new();
@@ -904,16 +967,23 @@ fn close_numeric(session: &mut GameSession) {
     }
 
     // Update streaks + apply multiplier, then award.
-    let mut player_results = HashMap::<String, (bool, i64, i64, u32, usize, Option<f64>, u64)>::new();
+    let mut player_results =
+        HashMap::<String, (bool, i64, i64, u32, usize, Option<f64>, u64)>::new();
     for (pid, player) in &mut session.players {
         let answered = session.numeric_answers.contains_key(pid);
         let your_value = session.numeric_answers.get(pid).map(|(v, _)| *v);
-        let your_time = session.numeric_answers.get(pid).map(|(_, t)| *t).unwrap_or(0);
+        let your_time = session
+            .numeric_answers
+            .get(pid)
+            .map(|(_, t)| *t)
+            .unwrap_or(0);
         let (rank_idx, base_points) = rank_map.get(pid).copied().unwrap_or((usize::MAX, 0));
         let got_points = base_points > 0;
 
         if got_points {
             player.streak += 1;
+            player.correct_count += 1;
+            player.best_streak = player.best_streak.max(player.streak);
         } else if answered {
             player.streak = 0;
         }
@@ -930,9 +1000,25 @@ fn close_numeric(session: &mut GameSession) {
         player.score += awarded;
         player_results.insert(
             pid.clone(),
-            (got_points, base_points, awarded, player.streak, rank_idx, your_value, your_time),
+            (
+                got_points,
+                base_points,
+                awarded,
+                player.streak,
+                rank_idx,
+                your_value,
+                your_time,
+            ),
         );
     }
+
+    session.question_stats.push(QuestionStat {
+        text: q.text.clone(),
+        kind: q.kind.clone(),
+        answered: session.numeric_answers.len(),
+        correct: Some(player_results.values().filter(|r| r.0).count()),
+        player_count: session.players.len(),
+    });
 
     let leaderboard = session.leaderboard();
     let is_last = session.current_question + 1 >= session.quiz.questions.len();
@@ -975,7 +1061,10 @@ fn close_numeric(session: &mut GameSession) {
     // Per-player result.
     for (pid, player) in &session.players {
         let (got_points, base_points, awarded, streak, rank_idx, your_value, time_ms) =
-            player_results.get(pid).copied().unwrap_or((false, 0, 0, 0, usize::MAX, None, 0));
+            player_results
+                .get(pid)
+                .copied()
+                .unwrap_or((false, 0, 0, 0, usize::MAX, None, 0));
         let lb_rank = leaderboard
             .iter()
             .position(|e| e.nickname == player.nickname)
@@ -1062,19 +1151,22 @@ fn start_voting(session: &mut GameSession, games: &game::GameManager, pin: &str)
     session.phase = GamePhase::Voting;
     session.question_started_at = Some(std::time::Instant::now());
 
-    let texts: Vec<String> = session.vote_options.iter().map(|(_, t)| t.clone()).collect();
+    let texts: Vec<String> = session
+        .vote_options
+        .iter()
+        .map(|(_, t)| t.clone())
+        .collect();
     let total = session.players.len();
 
-    session.send_to_host(
-        &json!({ "type": "voting", "options": texts, "total": total }).to_string(),
-    );
+    session
+        .send_to_host(&json!({ "type": "voting", "options": texts, "total": total }).to_string());
 
     // Each player gets the option list and the index of their own answer (disabled).
     for (pid, player) in &session.players {
         let own = session.vote_options.iter().position(|(aid, _)| aid == pid);
-        let _ = player.tx.send(
-            json!({ "type": "voting", "options": texts, "own_index": own }).to_string(),
-        );
+        let _ = player
+            .tx
+            .send(json!({ "type": "voting", "options": texts, "own_index": own }).to_string());
     }
 
     // Auto-close voting after a fixed window.
@@ -1100,10 +1192,20 @@ fn finalize_open(session: &mut GameSession) {
         .collect();
     session.phase = GamePhase::Results;
 
+    {
+        let q = &session.quiz.questions[session.current_question];
+        session.question_stats.push(QuestionStat {
+            text: q.text.clone(),
+            kind: q.kind.clone(),
+            answered: session.vote_options.len(),
+            correct: None,
+            player_count: session.players.len(),
+        });
+    }
+
     let options = session.vote_options.clone();
     let n = options.len();
-    let votes: Vec<(String, usize)> =
-        session.votes.iter().map(|(k, &v)| (k.clone(), v)).collect();
+    let votes: Vec<(String, usize)> = session.votes.iter().map(|(k, &v)| (k.clone(), v)).collect();
 
     let mut counts = vec![0usize; n];
     for (_, idx) in &votes {
@@ -1241,8 +1343,15 @@ fn player_state_msg(session: &GameSession, player_id: &str) -> String {
             .to_string()
         }
         GamePhase::Voting => {
-            let texts: Vec<String> = session.vote_options.iter().map(|(_, t)| t.clone()).collect();
-            let own = session.vote_options.iter().position(|(aid, _)| aid == player_id);
+            let texts: Vec<String> = session
+                .vote_options
+                .iter()
+                .map(|(_, t)| t.clone())
+                .collect();
+            let own = session
+                .vote_options
+                .iter()
+                .position(|(aid, _)| aid == player_id);
             json!({ "type": "voting", "options": texts, "own_index": own }).to_string()
         }
         GamePhase::Finished => {

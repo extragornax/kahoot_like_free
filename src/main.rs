@@ -50,7 +50,11 @@ async fn auth_rate_limit(
     if state.rate_limiter.check(&client_ip(&headers)) {
         next.run(req).await
     } else {
-        (StatusCode::TOO_MANY_REQUESTS, "Too many requests. Try again shortly.").into_response()
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests. Try again shortly.",
+        )
+            .into_response()
     }
 }
 
@@ -101,10 +105,22 @@ async fn main() {
     let admin = Router::new()
         .route("/users", get(handlers::admin::list_users))
         .route("/users/{id}/quizzes", get(handlers::admin::user_quizzes))
-        .route("/users/{id}/password", axum::routing::put(handlers::admin::change_password))
-        .route("/users/{id}/admin", axum::routing::put(handlers::admin::set_admin))
-        .route("/users/{id}", axum::routing::delete(handlers::admin::delete_user))
-        .route("/quizzes/{id}", axum::routing::delete(handlers::admin::delete_quiz));
+        .route(
+            "/users/{id}/password",
+            axum::routing::put(handlers::admin::change_password),
+        )
+        .route(
+            "/users/{id}/admin",
+            axum::routing::put(handlers::admin::set_admin),
+        )
+        .route(
+            "/users/{id}",
+            axum::routing::delete(handlers::admin::delete_user),
+        )
+        .route(
+            "/quizzes/{id}",
+            axum::routing::delete(handlers::admin::delete_quiz),
+        );
 
     // Abuse-prone auth endpoints, rate-limited per client IP.
     let auth_limited = Router::new()
@@ -112,38 +128,65 @@ async fn main() {
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/forgot", post(handlers::auth::forgot_password))
         .route("/auth/reset", post(handlers::auth::reset_password))
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth_rate_limit));
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_rate_limit,
+        ));
 
     let api = Router::new()
         .nest("/admin", admin)
         .merge(auth_limited)
         .route("/auth/challenge", get(handlers::auth::challenge))
-        .route("/auth/me", get(handlers::auth::me).put(handlers::auth::update_account))
-        .route("/quizzes", get(handlers::quiz::list).post(handlers::quiz::create))
-        .route("/quizzes/{id}", get(handlers::quiz::get).put(handlers::quiz::update).delete(handlers::quiz::delete))
-        .route("/quizzes/{id}/export.xlsx", get(handlers::quiz::export_xlsx))
+        .route(
+            "/auth/me",
+            get(handlers::auth::me).put(handlers::auth::update_account),
+        )
+        .route(
+            "/quizzes",
+            get(handlers::quiz::list).post(handlers::quiz::create),
+        )
+        .route(
+            "/quizzes/{id}",
+            get(handlers::quiz::get)
+                .put(handlers::quiz::update)
+                .delete(handlers::quiz::delete),
+        )
+        .route(
+            "/quizzes/{id}/export.xlsx",
+            get(handlers::quiz::export_xlsx),
+        )
         .route("/games/{quiz_id}", post(handlers::game::create))
         .route("/games/{pin}/qr", get(handlers::game::qr_svg))
-        .route("/upload", post(handlers::upload::upload)
-            .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)));
+        .route("/history", get(handlers::history::list))
+        .route(
+            "/history/{id}",
+            get(handlers::history::get).delete(handlers::history::delete),
+        )
+        .route(
+            "/upload",
+            post(handlers::upload::upload)
+                .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)),
+        );
 
     let app = Router::new()
         .nest("/api", api)
         .route("/ws/host/{pin}", get(handlers::game::host_ws))
         .route("/ws/play/{pin}", get(handlers::game::player_ws))
         .route("/health", get(|| async { "ok" }))
-        .fallback_service(
-            ServeDir::new("static")
-                .precompressed_gzip()
-        )
+        .fallback_service(ServeDir::new("static").precompressed_gzip())
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("public, max-age=3600"),
         ))
         .with_state(state);
 
-    let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3000u16);
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000u16);
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
+        .await
+        .unwrap();
     tracing::info!("listening on http://localhost:{port}");
     if let Some(ip) = local_network_ip() {
         tracing::info!("network: http://{ip}:{port}");
