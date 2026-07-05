@@ -112,19 +112,25 @@
         #waiting-screen .reaction-bar {
             margin-top: 4vh;
             display: flex;
-            gap: 0.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 100%;
+            gap: min(0.5rem, 2vw);
             background: rgba(0,0,0,0.25);
             padding: 0.45rem 0.6rem;
             border-radius: 999px;
         }
 
         .reaction-btn {
-            font-size: 1.6rem;
+            /* Sized so all 6 buttons + gaps + bar padding fit inside the
+               screen's 5vw side padding on narrow phones. */
+            --size: min(2.4rem, 10.5vw);
+            font-size: calc(var(--size) * 0.65);
             background: rgba(255,255,255,0.12);
             border: none;
             border-radius: 50%;
-            width: 2.4rem;
-            height: 2.4rem;
+            width: var(--size);
+            height: var(--size);
             cursor: pointer;
             transition: transform 0.1s, background 0.15s;
         }
